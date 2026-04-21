@@ -1,0 +1,66 @@
+Wijzigingen voor 'Nieuwe energiesysteem architectuur plan'
+
+1. Nieuwe folderstructuur
+- src/generation/
+  - pv.py
+  - WKK.py
+- src/storage/
+  - batterij.py
+  - warmte.py
+- src/__init__.py toegevoegd voor nettere imports
+
+2. Centrale config uitgebreid
+- src/load/profiles.py
+  - PVConfig
+  - WKKConfig
+  - BatteryConfig
+  - ThermalStorageConfig
+- LoadConfig uitgebreid met pv, wkk, battery, thermal_storage
+- make_default_load_config(...) accepteert nu ook:
+  - pv_overrides
+  - wkk_overrides
+  - battery_overrides
+  - thermal_storage_overrides
+
+3. Weather-laag uitgebreid
+- src/load/weather.py
+  - read_weather_excel(...)
+  - leest Excel-bestanden met kolommen zoals:
+    Year, Month, Day, Hour,
+    Dry Bulb Temperature (C),
+    Wind Speed (m/s),
+    Global Horizontal Radiation (Wh/m2)
+  - standaardiseert naar interne kolommen:
+    t_amb_C, wind_ms, ghi_Wm2
+
+4. Nieuwe energiesysteembalans
+- src/load/total.py
+  - run_energy_system_simulation(...)
+  - combineert:
+    * Load
+    * PV
+    * WKK
+    * placeholder storage
+    * grid import/export
+- nieuwe outputkolommen o.a.:
+  - P_load_total_kW
+  - P_pv_kW
+  - P_wkk_el_kW
+  - P_generation_total_kW
+  - P_grid_import_kW
+  - P_grid_export_kW
+  - P_net_kW
+
+5. App aangepast
+- app.py gebruikt nu run_energy_system_simulation(...)
+- in Defaults-tab extra invoer voor:
+  - PV enabled / capacity / tilt / azimuth
+  - WKK enabled / rated power / min load fraction
+  - batterij en warmteopslag placeholders
+- sidebar heeft optioneel pad naar weather Excel
+- Run & Results toont grid-import KPI's en energiebalans-quickview
+
+Belangrijk
+- Batterij en warmteopslag zijn nog placeholders.
+- WKK is nu elektriciteitsvolgend (peak shaving / netreductie).
+- PV-model is bewust simpel gehouden zodat de architectuur nu staat.
