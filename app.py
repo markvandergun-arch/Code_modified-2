@@ -955,7 +955,6 @@ COLUMN_LABELS = {
     "P_grid_export_kW": "Teruglevering",
     "P_electric_load_kW": "Elektrisch verbruik gemeten",
     "F_gas_kW": "Gasvermogen",
-    "Q_heat_kWth": "Warmte gemeten",
     "P_grid_contract_excess_kW": "Boven contract",
     "battery_soc_pct": "Vullingsgraad batterij",
     "Q_heat_demand_kWth": "Warmtevraag",
@@ -964,8 +963,10 @@ COLUMN_LABELS = {
     "Q_boiler_th_kWth": "Ketelwarmte",
     "Q_dh_th_kWth": "Warmtenet",
     "Q_heat_from_reference_kWth": "Referentieverwarming",
+    "Q_thermal_storage_charge_kWth": "Warmteopslag laden",
     "Q_thermal_storage_discharge_kWth": "Warmteopslag ontladen",
     "Q_heat_unserved_final_kWth": "Ongedekte warmte",
+    "P_hp_el_kW": "Warmtepomp elektriciteit",
 }
 
 PLOT_EXPLANATIONS = {
@@ -1092,6 +1093,264 @@ def render_load_component_kpis(df: pd.DataFrame, specs: list[tuple[str, str, str
             value = peak_value(df, column)
         items.append((label, value, unit, decimals))
     render_kpi_row(items)
+
+
+ELECTRIC_CONSUMPTION_CATEGORIES = [
+    ("Elektrisch basisverbruik", "P_elektro_kW"),
+    ("Processen", "P_process_kW"),
+    ("Mobiliteit", "P_mobility_kW"),
+    ("Koeling", "P_cool_el_kW"),
+    ("Warmtepomp", "P_hp_el_kW"),
+    ("Referentieverwarming", "P_heat_ref_el_kW"),
+    ("Overig verbruik", "P_overig_kW"),
+]
+
+GENERATION_CATEGORIES = [
+    ("Zonnepanelen", "P_pv_kW"),
+    ("WKK elektrisch", "P_wkk_el_kW"),
+    ("Batterij ontladen", "P_battery_discharge_kW"),
+]
+
+HEAT_SUPPLY_CATEGORIES = [
+    ("Warmtepomp", "Q_hp_th_kWth"),
+    ("WKK-warmte", "Q_wkk_used_kWth"),
+    ("Ketel", "Q_boiler_th_kWth"),
+    ("Warmtenet", "Q_dh_th_kWth"),
+    ("Referentie", "Q_heat_from_reference_kWth"),
+    ("Warmteopslag", "Q_thermal_storage_discharge_kWth"),
+    ("Ongedekt", "Q_heat_unserved_final_kWth"),
+]
+
+STORAGE_CATEGORIES = [
+    ("Batterij laden", "P_battery_charge_kW"),
+    ("Batterij ontladen", "P_battery_discharge_kW"),
+    ("Warmteopslag laden", "Q_thermal_storage_charge_kWth"),
+    ("Warmteopslag ontladen", "Q_thermal_storage_discharge_kWth"),
+]
+
+SEASON_ORDER = ["Winter", "Lente", "Zomer", "Herfst"]
+
+
+def _positive_categories(df: pd.DataFrame, mapping: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    out = []
+    for label, column in mapping:
+        if column in df.columns and float(df[column].fillna(0.0).clip(lower=0.0).sum()) > 1e-9:
+            out.append((label, column))
+    return out
+
+
+def annual_energy_by_category(df: pd.DataFrame, mapping: list[tuple[str, str]]) -> pd.DataFrame:
+    rows = []
+    dt_h = series_dt_hours(df)
+    for label, column in _positive_categories(df, mapping):
+        rows.append({"categorie": label, "energie_kWh": float((df[column].clip(lower=0.0) * dt_h).sum())})
+    return pd.DataFrame(rows)
+
+
+def _season_label(month: int) -> str:
+    if month in (12, 1, 2):
+        return "Winter"
+    if month in (3, 4, 5):
+        return "Lente"
+    if month in (6, 7, 8):
+        return "Zomer"
+    return "Herfst"
+
+
+def seasonal_energy_by_category(df: pd.DataFrame, mapping: list[tuple[str, str]]) -> pd.DataFrame:
+    rows = []
+    dt_h = series_dt_hours(df)
+    seasons = pd.Series([_season_label(int(m)) for m in df.index.month], index=df.index)
+    for label, column in _positive_categories(df, mapping):
+        energy = df[column].clip(lower=0.0) * dt_h
+        grouped = energy.groupby(seasons).sum()
+        for season in SEASON_ORDER:
+            rows.append({"seizoen": season, "categorie": label, "energie_kWh": float(grouped.get(season, 0.0))})
+    return pd.DataFrame(rows)
+
+
+def daily_energy_by_category(df: pd.DataFrame, mapping: list[tuple[str, str]]) -> pd.DataFrame:
+    rows = []
+    dt_h = series_dt_hours(df)
+    for label, column in _positive_categories(df, mapping):
+        energy = (df[column].clip(lower=0.0) * dt_h).resample("D").sum()
+        for ts, value in energy.items():
+            rows.append({"datum": ts, "categorie": label, "energie_kWh": float(value)})
+    return pd.DataFrame(rows)
+
+
+def timeseries_energy_by_category(df: pd.DataFrame, mapping: list[tuple[str, str]]) -> pd.DataFrame:
+    rows = []
+    for label, column in _positive_categories(df, mapping):
+        series = df[column].clip(lower=0.0)
+        for ts, value in series.items():
+            rows.append({"timestamp": ts, "categorie": label, "vermogen_kW": float(value)})
+    return pd.DataFrame(rows)
+
+
+def render_donut_chart(title: str, data: pd.DataFrame, *, unit: str = "kWh") -> None:
+    if data.empty or float(data["energie_kWh"].sum()) <= 0:
+        st.info(f"Geen data beschikbaar voor {title.lower()}.")
+        return
+    st.markdown(f"**{title}**")
+    chart = (
+        alt.Chart(data)
+        .mark_arc(innerRadius=65, outerRadius=120)
+        .encode(
+            theta=alt.Theta("energie_kWh:Q", title=f"Energie [{unit}]"),
+            color=alt.Color("categorie:N", title="Categorie"),
+            tooltip=[
+                "categorie:N",
+                alt.Tooltip("energie_kWh:Q", format=",.0f", title=f"Energie [{unit}]"),
+            ],
+        )
+    )
+    st.altair_chart(chart, width='stretch')
+
+
+def render_stacked_bar_chart(title: str, data: pd.DataFrame, *, x_col: str = "seizoen", unit: str = "kWh") -> None:
+    if data.empty:
+        st.info(f"Geen data beschikbaar voor {title.lower()}.")
+        return
+    st.markdown(f"**{title}**")
+    chart = (
+        alt.Chart(data)
+        .mark_bar()
+        .encode(
+            x=alt.X(f"{x_col}:N", title=x_col.capitalize(), sort=SEASON_ORDER if x_col == "seizoen" else None),
+            y=alt.Y("energie_kWh:Q", stack=True, title=f"Energie [{unit}]"),
+            color=alt.Color("categorie:N", title="Categorie"),
+            tooltip=[
+                f"{x_col}:N",
+                "categorie:N",
+                alt.Tooltip("energie_kWh:Q", format=",.0f", title=f"Energie [{unit}]"),
+            ],
+        )
+        .interactive()
+    )
+    st.altair_chart(chart, width='stretch')
+
+
+def render_stacked_area_chart(title: str, data: pd.DataFrame, *, unit: str = "kW") -> None:
+    if data.empty:
+        st.info(f"Geen data beschikbaar voor {title.lower()}.")
+        return
+    st.markdown(f"**{title}**")
+    chart = (
+        alt.Chart(data)
+        .mark_area(opacity=0.85)
+        .encode(
+            x=alt.X("timestamp:T", title="Tijd"),
+            y=alt.Y("vermogen_kW:Q", stack=True, title=f"Vermogen [{unit}]"),
+            color=alt.Color("categorie:N", title="Categorie"),
+            tooltip=[
+                "timestamp:T",
+                "categorie:N",
+                alt.Tooltip("vermogen_kW:Q", format=",.1f", title=f"Vermogen [{unit}]"),
+            ],
+        )
+        .interactive()
+    )
+    st.altair_chart(chart, width='stretch')
+
+
+def render_daily_energy_chart(title: str, data: pd.DataFrame, *, unit: str = "kWh/dag") -> None:
+    if data.empty:
+        st.info(f"Geen data beschikbaar voor {title.lower()}.")
+        return
+    st.markdown(f"**{title}**")
+    chart = (
+        alt.Chart(data)
+        .mark_line(strokeWidth=1.8)
+        .encode(
+            x=alt.X("datum:T", title="Datum"),
+            y=alt.Y("energie_kWh:Q", title=f"Energie [{unit}]"),
+            color=alt.Color("categorie:N", title="Categorie"),
+            tooltip=[
+                "datum:T",
+                "categorie:N",
+                alt.Tooltip("energie_kWh:Q", format=",.0f", title=f"Energie [{unit}]"),
+            ],
+        )
+        .interactive()
+    )
+    st.altair_chart(chart, width='stretch')
+
+
+def render_daily_stacked_area_chart(title: str, data: pd.DataFrame, *, unit: str = "kWh/dag") -> None:
+    if data.empty:
+        st.info(f"Geen data beschikbaar voor {title.lower()}.")
+        return
+    st.markdown(f"**{title}**")
+    chart = (
+        alt.Chart(data)
+        .mark_area(opacity=0.85)
+        .encode(
+            x=alt.X("datum:T", title="Tijd"),
+            y=alt.Y("energie_kWh:Q", stack=True, title=f"Energie [{unit}]"),
+            color=alt.Color("categorie:N", title="Categorie"),
+            tooltip=[
+                "datum:T",
+                "categorie:N",
+                alt.Tooltip("energie_kWh:Q", format=",.0f", title=f"Energie [{unit}]"),
+            ],
+        )
+        .interactive()
+    )
+    st.altair_chart(chart, width='stretch')
+
+
+def render_peak_grid_week_interactive(df: pd.DataFrame, contract_kW: float | None) -> None:
+    if df.empty or "P_grid_import_kW" not in df.columns:
+        return
+    week = df.loc[find_peak_week(df, "P_grid_import_kW")].copy()
+    cols = [
+        "P_grid_import_kW",
+        "P_load_total_kW",
+        "P_elektro_kW",
+        "P_process_kW",
+        "P_mobility_kW",
+        "P_cool_el_kW",
+        "P_hp_el_kW",
+        "P_heat_ref_el_kW",
+        "P_pv_kW",
+        "P_wkk_el_kW",
+        "P_battery_discharge_kW",
+    ]
+    available = [c for c in cols if c in week.columns]
+    plot_df = week[available].reset_index().rename(columns={"index": "timestamp"})
+    long_df = plot_df.melt(id_vars="timestamp", var_name="serie", value_name="vermogen_kW")
+    long_df["serie"] = long_df["serie"].map(lambda c: COLUMN_LABELS.get(c, c))
+
+    base = (
+        alt.Chart(long_df)
+        .mark_line(strokeWidth=2)
+        .encode(
+            x=alt.X("timestamp:T", title="Tijd"),
+            y=alt.Y("vermogen_kW:Q", title="Vermogen [kW]"),
+            color=alt.Color("serie:N", title="Reeks"),
+            tooltip=["timestamp:T", "serie:N", alt.Tooltip("vermogen_kW:Q", format=",.1f")],
+        )
+    )
+    layers = [base]
+    if contract_kW is not None:
+        contract_df = pd.DataFrame({"timestamp": plot_df["timestamp"], "contract_kW": float(contract_kW)})
+        layers.append(
+            alt.Chart(contract_df)
+            .mark_line(color="red", strokeDash=[6, 4], strokeWidth=2)
+            .encode(x="timestamp:T", y=alt.Y("contract_kW:Q", title="Vermogen [kW]"))
+        )
+    st.markdown("**Zwaarste netweek**")
+    st.altair_chart(alt.layer(*layers).interactive(), width='stretch')
+    render_plot_explanation("grid_week", f"Contractvermogen: {'niet ingesteld' if contract_kW is None else f'{float(contract_kW):.1f} kW'}.")
+
+
+def render_heat_week_interactive(df: pd.DataFrame) -> None:
+    if df.empty or "Q_heat_demand_kWth" not in df.columns:
+        return
+    week = df.loc[find_peak_week(df, "Q_heat_demand_kWth")].copy()
+    cols = [c for c in ["Q_heat_demand_kWth", "Q_hp_th_kWth", "Q_wkk_used_kWth", "Q_boiler_th_kWth", "Q_dh_th_kWth", "Q_heat_from_reference_kWth", "Q_thermal_storage_discharge_kWth", "Q_heat_unserved_final_kWth"] if c in week.columns]
+    render_timeseries_plot(week, cols, "Zwaarste warmteweek", y_title="Warmtevermogen [kWth]", explanation_key="heat_balance")
 
 def plot_peak_grid_import_week_stacked(
     df: pd.DataFrame,
@@ -1509,6 +1768,184 @@ def build_export_bundle(df: pd.DataFrame, measurement_metadata: dict | None = No
                     zf.writestr(f"validation_{name}.csv", agg_df.to_csv())
     memory.seek(0)
     return memory.getvalue()
+
+
+def render_model_quality_section(df: pd.DataFrame) -> None:
+    checks = df.attrs.get("sanity_checks") or {}
+    if not checks:
+        st.info("Modelchecks zijn niet beschikbaar voor deze run.")
+        return
+    ok = bool(checks.get("heat_balance_within_tolerance")) and bool(checks.get("no_non_physical_negatives")) and bool(checks.get("all_capacity_constraints_respected"))
+    if ok:
+        st.success("Modelchecks: OK")
+    else:
+        st.warning("Modelchecks: aandacht nodig")
+    with st.expander("Details modelchecks", expanded=False):
+        render_sanity_checks(df)
+
+
+def render_results_dashboard(df: pd.DataFrame, contract: float | None, cfg=None) -> None:
+    kpis = energy_kpis(df)
+    grid_eval = df.attrs.get("grid_evaluation") or {}
+    grid_metrics = compute_grid_stress_metrics(df, contract)
+
+    st.markdown("### 1. Beslissingssamenvatting")
+    render_grid_stoplight(df, contract, cfg=cfg)
+    render_kpi_row(
+        [
+            ("Jaarlijkse netimport", kpis.get("Jaarlijkse netimport [kWh]"), "kWh", 0),
+            ("Ongedekte warmte", kpis.get("Jaarlijkse ongedekte warmte [kWhth]"), "kWhth", 0),
+            ("Gas-/brandstofinput", float(df.attrs.get("kpis", {}).get("annual_fuel_input_kWh", 0.0)), "kWh", 0),
+            ("Zelfvoorziening", None if grid_metrics.get("self_sufficiency") is None else 100.0 * float(grid_metrics["self_sufficiency"]), "%", 1),
+        ]
+    )
+    stoplight = str(grid_eval.get("stoplight", "unknown"))
+    heat_unserved = float(df.attrs.get("kpis", {}).get("annual_heat_unserved_kWhth", 0.0) or 0.0)
+    fuel_input = float(df.attrs.get("kpis", {}).get("annual_fuel_input_kWh", 0.0) or 0.0)
+    if stoplight == "green":
+        st.caption("Netcapaciteit: de berekende netimport blijft binnen de ingestelde beoordelingsgrenzen.")
+    elif stoplight in {"orange", "red"}:
+        st.caption("Netcapaciteit: er zijn momenten waarop de aansluiting krap is of wordt overschreden; bekijk de netcapaciteitsectie voor oorzaak en duur.")
+    else:
+        st.caption("Netcapaciteit: stel een contractvermogen in om het stoplicht te beoordelen.")
+    if heat_unserved <= 1e-6 and fuel_input <= 1e-6:
+        st.caption("Warmte/gasloosheid: de warmtevraag wordt in deze run zonder resterende brandstofinput en zonder ongedekte warmte ingevuld.")
+    elif heat_unserved <= 1e-6:
+        st.caption("Warmte/gasloosheid: de warmtevraag is gedekt, maar er is nog brandstofinput aanwezig.")
+    else:
+        st.caption("Warmte/gasloosheid: er blijft ongedekte warmtevraag over; extra warmtecapaciteit of opslag is nodig.")
+
+    st.markdown("### 2. Netcapaciteit")
+    render_kpi_row(
+        [
+            ("Uren > 90%", grid_metrics.get("hours_above_90"), "h", 1),
+            ("Uren > 95%", grid_metrics.get("hours_above_95"), "h", 1),
+            ("Uren > 100%", grid_metrics.get("hours_above_100"), "h", 1),
+            ("Gemiddelde netruimte", grid_metrics.get("avg_headroom_kW"), "kW", 1),
+            ("Benuttingsgraad", grid_metrics.get("load_factor"), "", 2),
+        ],
+        columns=5,
+    )
+    render_peak_grid_week_interactive(df, contract)
+    render_grid_duration_curve(df, contract)
+
+    st.markdown("### 3. Jaarprofiel Verbruik")
+    render_daily_stacked_area_chart(
+        "Gebruikte energie per dag, uitgesplitst naar gebruikers",
+        daily_energy_by_category(df, ELECTRIC_CONSUMPTION_CATEGORIES),
+    )
+
+    st.markdown("### 4. Jaarprofiel Opwek")
+    render_daily_stacked_area_chart(
+        "Opgewekte en beschikbare energie per dag",
+        daily_energy_by_category(df, GENERATION_CATEGORIES),
+    )
+
+    st.markdown("### 5. Verbruiksmix")
+    render_kpi_row(
+        [
+            ("Jaarverbruik elektriciteit", kpis.get("Jaarverbruik elektriciteit [kWh]"), "kWh", 0),
+            ("Elektriciteitsintensiteit", intensity_per_m2(float(kpis.get("Jaarverbruik elektriciteit [kWh]", 0.0))), "kWh/m²", 1),
+            ("Piek totaal verbruik", kpis.get("Piek totaal verbruik [kW]"), "kW", 1),
+            ("Mobiliteit laden", annual_sum(df, "P_mobility_kW"), "kWh", 0),
+        ]
+    )
+    c_mix1, c_mix2 = st.columns(2)
+    with c_mix1:
+        render_donut_chart("Jaarmix verbruik", annual_energy_by_category(df, ELECTRIC_CONSUMPTION_CATEGORIES))
+    with c_mix2:
+        render_stacked_bar_chart("Seizoensverbruik", seasonal_energy_by_category(df, ELECTRIC_CONSUMPTION_CATEGORIES))
+
+    st.markdown("### 6. Opwek En Load Match")
+    pv_year = annual_sum(df, "P_pv_kW")
+    pv_capacity = float(st.session_state.get("pv_cap", 0.0) or 0.0)
+    render_kpi_row(
+        [
+            ("Jaaropwek PV", pv_year, "kWh", 0),
+            ("Jaaropwek WKK", annual_sum(df, "P_wkk_el_kW"), "kWh", 0),
+            ("Teruglevering", kpis.get("Jaarlijkse teruglevering [kWh]"), "kWh", 0),
+            ("PV-vollasturen", pv_year / pv_capacity if pv_capacity > 0 else None, "h", 0),
+        ]
+    )
+    c_gen1, c_gen2 = st.columns(2)
+    with c_gen1:
+        render_donut_chart("Jaarmix opwek", annual_energy_by_category(df, [("Zonnepanelen", "P_pv_kW"), ("WKK elektrisch", "P_wkk_el_kW")]))
+    with c_gen2:
+        render_stacked_bar_chart("Seizoensopwek", seasonal_energy_by_category(df, [("Zonnepanelen", "P_pv_kW"), ("WKK elektrisch", "P_wkk_el_kW")]))
+    render_daily_energy_chart(
+        "Dagelijkse load match",
+        daily_energy_by_category(
+            df,
+            [
+                ("Totaal verbruik", "P_load_total_kW"),
+                ("Lokale opwek", "P_generation_total_kW"),
+                ("Netimport", "P_grid_import_kW"),
+                ("Teruglevering", "P_grid_export_kW"),
+            ],
+        ),
+    )
+
+    st.markdown("### 7. Warmte En Gasloosheid")
+    heat_total = float(kpis.get("Jaarlijkse warmtevraag [kWhth]", 0.0) or 0.0)
+    gas_heat = annual_sum(df, "Q_boiler_th_kWth") + annual_sum(df, "Q_wkk_used_kWth")
+    gasless_share = None if heat_total <= 0 else max(0.0, 100.0 * (1.0 - gas_heat / heat_total))
+    render_kpi_row(
+        [
+            ("Warmtevraag", heat_total, "kWhth", 0),
+            ("Ongedekte warmte", kpis.get("Jaarlijkse ongedekte warmte [kWhth]"), "kWhth", 0),
+            ("Warmtepomp elektriciteit", kpis.get("Jaarverbruik warmtepomp elektriciteit [kWh]"), "kWh", 0),
+            ("Indicatie gasloos geleverd", gasless_share, "%", 1),
+        ]
+    )
+    render_stacked_bar_chart("Warmtebalans per seizoen", seasonal_energy_by_category(df, HEAT_SUPPLY_CATEGORIES), unit="kWhth")
+    render_heat_week_interactive(df)
+
+    st.markdown("### 8. Opslag En Flexibiliteit")
+    render_kpi_row(
+        [
+            ("Piekreductie batterij", kpis.get("Piekverlaging door batterij [kW]"), "kW", 1),
+            ("Batterij laden", kpis.get("Jaarlijks laden batterij [kWh]"), "kWh", 0),
+            ("Batterij ontladen", kpis.get("Jaarlijks ontladen batterij [kWh]"), "kWh", 0),
+            ("Teruglevering", kpis.get("Jaarlijkse teruglevering [kWh]"), "kWh", 0),
+        ]
+    )
+    storage_seasonal = seasonal_energy_by_category(df, STORAGE_CATEGORIES)
+    if not storage_seasonal.empty:
+        render_stacked_bar_chart("Opslagstromen per seizoen", storage_seasonal)
+    if "battery_soc_pct" in df.columns:
+        worst_week_idx = find_worst_grid_week(df)
+        if len(worst_week_idx) > 0:
+            render_timeseries_plot(df.loc[worst_week_idx], ["battery_soc_pct"], "Batterijvulling in zwaarste netweek", y_title="Vullingsgraad [%]", explanation_key="battery_soc")
+
+    st.markdown("### 9. Modelkwaliteit En Details")
+    render_model_quality_section(df)
+    with st.expander("Samenvatting voor consultant", expanded=False):
+        st.json(consultant_summary(df, contract))
+    with st.expander("Resultaatdata bekijken", expanded=False):
+        st.dataframe(df.head(200))
+
+    export_zip = build_export_bundle(
+        df,
+        measurement_metadata=st.session_state.get("last_measurement_metadata"),
+        validation_result=st.session_state.get("last_validation_result"),
+    )
+    c_export1, c_export2 = st.columns(2)
+    with c_export1:
+        st.download_button(
+            "Download resultaten als CSV",
+            df.to_csv().encode("utf-8"),
+            file_name="energy_system_results.csv",
+            mime="text/csv",
+            help="Wat: downloadt de resultaatreeks. In het model verandert dit niets. Effect: je kunt de berekening buiten de app analyseren.",
+        )
+    with c_export2:
+        st.download_button(
+            "Download exportpakket (.zip)",
+            export_zip,
+            file_name="energy_system_export_bundle.zip",
+            mime="application/zip",
+            help="Wat: downloadt resultaten en validatie-informatie samen. In het model verandert dit niets. Effect: handig voor rapportage of overdracht.",
+        )
 
 
 
@@ -2188,7 +2625,7 @@ with total_tab:
     if st.button("Bereken totaal", type="primary", help="Wat: start de totale simulatie. In het model worden verbruik, opwek, warmtebronnen en opslag gecombineerd. Effect: alle resultaatgrafieken en KPI's worden vernieuwd."):
         try:
             cfg = build_cfg()
-            df, fig_heat, fig_balance, _ = run_energy_system_simulation(
+            df, _fig_heat, _fig_balance, _ = run_energy_system_simulation(
                 cfg,
                 weather=WEATHER_DF,
                 grid_cap_kW=safe_contract_value(st.session_state.get("grid_cap_kW")),
@@ -2197,137 +2634,15 @@ with total_tab:
                 poverig_subloads=subload_payload("poverig_subloads", "occ"),
             )
             st.session_state["last_total_df"] = df
-            contract = safe_contract_value(st.session_state.get("grid_cap_kW"))
-            render_grid_stoplight(df, contract, cfg=cfg)
-            kpis = energy_kpis(df)
-            st.markdown("### Kerngetallen")
-            render_kpi_row(
-                [
-                    ("Piek netimport", kpis.get("Piek netimport na batterij [kW]"), "kW", 1),
-                    ("Piek boven contract", kpis.get("Piek boven contractvermogen [kW]"), "kW", 1),
-                    ("Jaarlijkse netimport", kpis.get("Jaarlijkse netimport [kWh]"), "kWh", 0),
-                    ("Jaarverbruik elektriciteit", kpis.get("Jaarverbruik elektriciteit [kWh]"), "kWh", 0),
-                ]
-            )
-            render_kpi_row(
-                [
-                    ("Jaarlijkse warmtevraag", kpis.get("Jaarlijkse warmtevraag [kWhth]"), "kWhth", 0),
-                    ("Ongedekte warmte", kpis.get("Jaarlijkse ongedekte warmte [kWhth]"), "kWhth", 0),
-                    ("Warmtepomp elektriciteit", kpis.get("Jaarverbruik warmtepomp elektriciteit [kWh]"), "kWh", 0),
-                    ("Ketelwarmte", kpis.get("Jaarlijkse ketelwarmte [kWhth]"), "kWhth", 0),
-                ]
-            )
-
-            render_sanity_checks(df)
-            st.markdown("### Samenvatting voor consultant")
-            with st.expander("Bekijk samenvatting", expanded=False):
-                st.json(consultant_summary(df, contract))
-            st.markdown("### Indicatoren netbelasting")
-
-            m = compute_grid_stress_metrics(df, contract)
-
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Uren > 90%", f"{m.get('hours_above_90', 0):.1f} h")
-            c2.metric("Uren > 95%", f"{m.get('hours_above_95', 0):.1f} h")
-            c3.metric("Uren > 100%", f"{m.get('hours_above_100', 0):.1f} h")
-            c4.metric("Gemiddelde netruimte", f"{m.get('avg_headroom_kW', 0):.1f} kW")
-            c5.metric("Benuttingsgraad", f"{m.get('load_factor', 0):.2f}")
-
-            if m.get("self_sufficiency") is not None:
-                st.caption(f"Zelfvoorzieningsgraad: {m['self_sufficiency']*100:.1f}%")
-
-
-
-            st.markdown("### Zwaarste week voor het elektriciteitsnet")
-
-            if "P_grid_import_kW" in df.columns:
-                weekly_peak = df["P_grid_import_kW"].rolling(168).max()
-                idx = weekly_peak.idxmax()
-                week = df.loc[idx - pd.Timedelta(hours=168): idx].copy()
-
-                week = week.reset_index().rename(columns={"index": "timestamp"})
-
-                base = alt.Chart(week).mark_line().encode(
-                    x="timestamp:T",
-                    y=alt.Y("P_grid_import_kW:Q", title="Netimport [kW]"),
-                    tooltip=["timestamp:T", alt.Tooltip("P_grid_import_kW:Q", format=".1f")]
-                )
-
-                layers = [base]
-
-                if contract is not None:
-                    contract_line = alt.Chart(pd.DataFrame({"y": [contract]})).mark_rule(
-                        color="red",
-                        strokeDash=[6, 4]
-                    ).encode(y="y")
-                    layers.append(contract_line)
-
-                st.altair_chart(alt.layer(*layers).interactive(), width='stretch')
-                render_plot_explanation("grid_week", f"Contractvermogen: {contract if contract is not None else 'niet ingesteld'} kW.")
-            plot_peak_grid_import_week_stacked(
-                df,
-                "Zwaarste netweek - bronnen en netimport",
-                contract_kW=safe_contract_value(st.session_state.get("grid_cap_kW")),
-            )
-
-            worst_week_idx = find_worst_grid_week(df)
-            worst_week_cols = [c for c in ["P_grid_import_kW", "P_grid_contract_excess_kW", "P_grid_export_kW"] if c in df.columns]
-            if len(worst_week_idx) > 0 and worst_week_cols:
-                st.markdown("**Diagnostiek zwaarste netweek**")
-                render_timeseries_plot(df.loc[worst_week_idx], worst_week_cols, "Diagnostiek zwaarste netweek", explanation_key="grid_week")
-
-            render_grid_duration_curve(
-                df,
-                safe_contract_value(st.session_state.get("grid_cap_kW")),
-            )
-
-            st.pyplot(fig_heat, clear_figure=True)
-            render_plot_explanation("heat_balance")
-            st.pyplot(fig_balance, clear_figure=True)
-            render_plot_explanation("grid_week", f"Contractvermogen: {contract if contract is not None else 'niet ingesteld'} kW.")
-            heat_cols = [c for c in ["Q_heat_demand_kWth", "Q_hp_th_kWth", "Q_wkk_used_kWth", "Q_boiler_th_kWth", "Q_dh_th_kWth", "Q_heat_from_reference_kWth", "Q_thermal_storage_discharge_kWth", "Q_heat_unserved_final_kWth"] if c in df.columns]
-            if heat_cols:
-                render_timeseries_plot(df, heat_cols, "Warmtebalans eerste week", y_title="Warmtevermogen [kWth]", explanation_key="heat_balance")
-            with st.expander("Resultaatdata bekijken", expanded=False):
-                st.dataframe(df.head(200))
-            export_zip = build_export_bundle(
-                df,
-                measurement_metadata=st.session_state.get("last_measurement_metadata"),
-                validation_result=st.session_state.get("last_validation_result"),
-            )
-            c_export1, c_export2 = st.columns(2)
-            with c_export1:
-                st.download_button(
-                    "Download resultaten als CSV",
-                    df.to_csv().encode("utf-8"),
-                    file_name="energy_system_results.csv",
-                    mime="text/csv",
-                    help="Wat: downloadt de resultaatreeks. In het model verandert dit niets. Effect: je kunt de berekening buiten de app analyseren.",
-                )
-            with c_export2:
-                st.download_button(
-                    "Download exportpakket (.zip)",
-                    export_zip,
-                    file_name="energy_system_export_bundle.zip",
-                    mime="application/zip",
-                    help="Wat: downloadt resultaten en validatie-informatie samen. In het model verandert dit niets. Effect: handig voor rapportage of overdracht.",
-                )
         except Exception as exc:
             st.error(f"Totale berekening mislukt: {exc}")
 
     if st.session_state["last_total_df"] is not None:
-        render_grid_stoplight(
+        render_results_dashboard(
             st.session_state["last_total_df"],
             safe_contract_value(st.session_state.get("grid_cap_kW")),
+            cfg=build_cfg(),
         )
-        render_sanity_checks(st.session_state["last_total_df"])
-        plot_peak_grid_import_week_stacked(
-            st.session_state["last_total_df"],
-            "Laatste total-run – peak grid import week",
-            contract_kW=float(st.session_state["grid_cap_kW"]) if st.session_state.get("grid_cap_kW") is not None else None,
-        )
-        if "battery_soc_pct" in st.session_state["last_total_df"].columns:
-            render_timeseries_plot(st.session_state["last_total_df"], ["battery_soc_pct"], "Vullingsgraad batterij", y_title="Vullingsgraad [%]", explanation_key="battery_soc")
 
 with validation_tab:
     st.write("Upload meetdata en vergelijk die met de laatste totale simulatie.")
