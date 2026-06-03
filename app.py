@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from html import escape
 import io
 import json
 import os
@@ -12,6 +11,11 @@ from pathlib import Path
 os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "energieplanner-matplotlib"))
 
 import altair as alt
+import matplotlib
+
+matplotlib.use("Agg")
+from matplotlib.backends.backend_pdf import PdfPages
+import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
@@ -2122,43 +2126,175 @@ def build_export_bundle(df: pd.DataFrame, measurement_metadata: dict | None = No
     return memory.getvalue()
 
 
-def _report_table(title: str, rows: list[tuple[str, object, str]]) -> str:
-    body = "\n".join(
-        f"<tr><th>{escape(str(label))}</th><td>{escape(_fmt_kpi(value, unit, 1 if unit in {'%', 'kW', 'kWth', 'h'} else 0))}</td></tr>"
-        for label, value, unit in rows
-    )
-    return f"<h3>{escape(title)}</h3><table>{body}</table>"
+def _pdf_finish_page(pdf: PdfPages, fig) -> None:
+    fig.tight_layout(rect=[0.035, 0.035, 0.965, 0.945])
+    pdf.savefig(fig, bbox_inches="tight")
+    plt.close(fig)
 
 
-def _report_dataframe(title: str, data: pd.DataFrame, *, value_col: str = "energie_kWh") -> str:
+def _pdf_header(fig, title: str, subtitle: str | None = None) -> None:
+    fig.suptitle(title, x=0.04, y=0.985, ha="left", va="top", fontsize=15, fontweight="bold")
+    if subtitle:
+        fig.text(0.04, 0.945, subtitle, ha="left", va="top", fontsize=9, color="#56616F")
+
+
+def _pdf_table(ax, rows: list[tuple[str, object, str]], *, title: str | None = None) -> None:
+    ax.axis("off")
+    if title:
+        ax.set_title(title, loc="left", fontsize=11, fontweight="bold", pad=8)
+    cell_text = [[label, _fmt_kpi(value, unit, 1 if unit in {"%", "kW", "kWth", "h"} else 0)] for label, value, unit in rows]
+    table = ax.table(cellText=cell_text, colLabels=["Indicator", "Waarde"], cellLoc="left", colLoc="left", loc="upper left")
+    table.auto_set_font_size(False)
+    table.set_fontsize(8.5)
+    table.scale(1, 1.18)
+    for (row, col), cell in table.get_celld().items():
+        cell.set_edgecolor("#D8DEE8")
+        if row == 0:
+            cell.set_facecolor("#F4F7FB")
+            cell.set_text_props(fontweight="bold")
+
+
+def _pdf_monthly_pivot(data: pd.DataFrame) -> pd.DataFrame:
     if data.empty:
-        return f"<h3>{escape(title)}</h3><p>Geen data beschikbaar.</p>"
-    pivot = data.pivot_table(index="maand", columns="categorie", values=value_col, aggfunc="sum", fill_value=0.0)
-    pivot = pivot.reindex([m for m in MONTH_ORDER if m in pivot.index])
-    return f"<h3>{escape(title)}</h3>{pivot.round(0).to_html(classes='data-table', border=0, escape=True)}"
+        return pd.DataFrame()
+    pivot = data.pivot_table(index="maand", columns="categorie", values="energie_kWh", aggfunc="sum", fill_value=0.0)
+    return pivot.reindex([m for m in MONTH_ORDER if m in pivot.index]).fillna(0.0)
 
 
-def build_results_report_html(df: pd.DataFrame, contract: float | None) -> bytes:
+def _pdf_plot_monthly(ax, title: str, data: pd.DataFrame, *, unit: str = "kWh") -> None:
+    pivot = _pdf_monthly_pivot(data)
+    ax.set_title(title, loc="left", fontsize=10, fontweight="bold")
+    if pivot.empty:
+        ax.text(0.02, 0.5, "Geen data beschikbaar.", transform=ax.transAxes, fontsize=9)
+        ax.axis("off")
+        return
+    pivot.plot(kind="bar", stacked=True, ax=ax, width=0.78)
+    ax.set_xlabel("Maand")
+    ax.set_ylabel(f"Energie [{unit}]")
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(fontsize=7, loc="upper left", bbox_to_anchor=(1.01, 1.0))
+
+
+def _pdf_plot_daily_area(ax, title: str, data: pd.DataFrame, *, unit: str = "kWh/dag") -> None:
+    ax.set_title(title, loc="left", fontsize=10, fontweight="bold")
+    if data.empty:
+        ax.text(0.02, 0.5, "Geen data beschikbaar.", transform=ax.transAxes, fontsize=9)
+        ax.axis("off")
+        return
+    pivot = data.pivot_table(index="datum", columns="categorie", values="energie_kWh", aggfunc="sum", fill_value=0.0)
+    pivot.index = pd.to_datetime(pivot.index).tz_localize(None) if getattr(pivot.index, "tz", None) is not None else pd.to_datetime(pivot.index)
+    pivot.plot.area(ax=ax, alpha=0.82, linewidth=0)
+    ax.set_xlabel("Datum")
+    ax.set_ylabel(f"Energie [{unit}]")
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(fontsize=7, loc="upper left", bbox_to_anchor=(1.01, 1.0))
+
+
+def _pdf_plot_pie(ax, title: str, data: pd.DataFrame) -> None:
+    ax.set_title(title, loc="left", fontsize=10, fontweight="bold")
+    if data.empty or float(data["energie_kWh"].sum()) <= 0:
+        ax.text(0.02, 0.5, "Geen data beschikbaar.", transform=ax.transAxes, fontsize=9)
+        ax.axis("off")
+        return
+    values = data["energie_kWh"].to_numpy(dtype=float)
+    labels = data["categorie"].tolist()
+    ax.pie(values, labels=labels, autopct=lambda p: f"{p:.0f}%" if p >= 4 else "", startangle=90, textprops={"fontsize": 7})
+    ax.axis("equal")
+
+
+def _pdf_time_index(index) -> pd.DatetimeIndex:
+    x = pd.DatetimeIndex(pd.to_datetime(index))
+    if x.tz is not None:
+        return x.tz_localize(None)
+    return x
+
+
+def _pdf_plot_peak_grid_week(ax, df: pd.DataFrame, contract: float | None) -> None:
+    ax.set_title("Zwaarste netweek", loc="left", fontsize=10, fontweight="bold")
+    if df.empty or "P_grid_import_kW" not in df.columns:
+        ax.axis("off")
+        return
+    week = df.loc[find_peak_week(df, "P_grid_import_kW")].copy()
+    x = _pdf_time_index(week.index)
+    context_cols = [c for c in ["P_load_total_kW", "P_pv_kW", "P_wkk_el_kW", "P_battery_discharge_kW"] if c in week.columns]
+    for col in context_cols:
+        ax.plot(x, week[col], linewidth=1.0, alpha=0.55, label=COLUMN_LABELS.get(col, col))
+    ax.plot(x, week["P_grid_import_kW"], linewidth=2.7, color="#0B5FFF", label="Netimport")
+    if contract is not None:
+        ax.axhline(float(contract), color="#D62728", linestyle="--", linewidth=1.4, label="Contractvermogen")
+    ax.set_ylabel("Vermogen [kW]")
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(fontsize=7, loc="upper left", bbox_to_anchor=(1.01, 1.0))
+
+
+def _pdf_plot_duration(ax, df: pd.DataFrame, contract: float | None) -> None:
+    ax.set_title("Duurcurve netbelasting", loc="left", fontsize=10, fontweight="bold")
+    if df.empty or "P_grid_import_kW" not in df.columns:
+        ax.axis("off")
+        return
+    duration = build_grid_duration_curve(df, contract_kW=contract)
+    ax.plot(duration["duration_h"], duration["P_grid_import_kW"], linewidth=2.0, color="#0B5FFF", label="Netimport")
+    if "P_grid_contract_kW" in duration.columns and contract is not None:
+        ax.plot(duration["duration_h"], duration["P_grid_contract_kW"], linestyle="--", color="#D62728", linewidth=1.4, label="Contract")
+    ax.set_xlabel("Uren per jaar gesorteerd")
+    ax.set_ylabel("Vermogen [kW]")
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(fontsize=7)
+
+
+def _pdf_plot_peak_week(ax, df: pd.DataFrame, peak_col: str, cols: list[str], title: str, ylabel: str) -> None:
+    ax.set_title(title, loc="left", fontsize=10, fontweight="bold")
+    if df.empty or peak_col not in df.columns:
+        ax.axis("off")
+        return
+    week = df.loc[find_peak_week(df, peak_col)].copy()
+    x = _pdf_time_index(week.index)
+    for col in [c for c in cols if c in week.columns]:
+        ax.plot(x, week[col], linewidth=1.5 if col == peak_col else 1.0, label=COLUMN_LABELS.get(col, col))
+    ax.set_ylabel(ylabel)
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(fontsize=7, loc="upper left", bbox_to_anchor=(1.01, 1.0))
+
+
+def _pdf_plot_gas_week(ax, df: pd.DataFrame) -> None:
+    gas_col = "F_total_gas_kW" if "F_total_gas_kW" in df.columns and float(df["F_total_gas_kW"].fillna(0.0).sum()) > 1e-9 else "F_total_fuel_kW"
+    ax.set_title("Zwaarste gasweek", loc="left", fontsize=10, fontweight="bold")
+    if df.empty or gas_col not in df.columns or float(df[gas_col].fillna(0.0).sum()) <= 1e-9:
+        ax.text(0.02, 0.5, "Geen gas- of brandstofvraag aanwezig.", transform=ax.transAxes, fontsize=9)
+        ax.axis("off")
+        return
+    week = df.loc[find_highest_energy_week(df, gas_col)].copy()
+    x = _pdf_time_index(week.index)
+    for col in [c for c in [gas_col, "F_wkk_gas_kW", "F_boiler_gas_kW", "F_wkk_fuel_kW", "F_boiler_fuel_kW"] if c in week.columns]:
+        ax.plot(x, week[col], linewidth=1.5 if col == gas_col else 1.0, label=COLUMN_LABELS.get(col, col))
+    ax.set_ylabel("Gas-/brandstofvermogen [kW]")
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(fontsize=7, loc="upper left", bbox_to_anchor=(1.01, 1.0))
+
+
+def build_results_report_pdf(df: pd.DataFrame, contract: float | None) -> bytes:
     kpis = energy_kpis(df)
     grid_eval = df.attrs.get("grid_evaluation") or {}
     grid_metrics = compute_grid_stress_metrics(df, contract)
-    stoplight = str(grid_eval.get("stoplight", "onbekend")).capitalize()
     generated_at = pd.Timestamp.now(tz=TZ).strftime("%Y-%m-%d %H:%M")
-
-    sections = [
-        _report_table(
-            "Beslissingssamenvatting",
+    memory = io.BytesIO()
+    with PdfPages(memory) as pdf:
+        fig, axes = plt.subplots(2, 1, figsize=(11.69, 8.27), gridspec_kw={"height_ratios": [1, 1.05]})
+        _pdf_header(fig, "Resultatenrapport energieplanner", f"Gegenereerd op {generated_at}")
+        _pdf_table(
+            axes[0],
             [
-                ("Stoplicht", stoplight, ""),
+                ("Stoplicht", str(grid_eval.get("stoplight", "onbekend")).capitalize(), ""),
                 ("Piek netimport", kpis.get("Piek netimport na batterij [kW]"), "kW"),
                 ("Piek boven contract", kpis.get("Piek boven contractvermogen [kW]"), "kW"),
                 ("Jaarlijkse netimport", kpis.get("Jaarlijkse netimport [kWh]"), "kWh"),
                 ("Ongedekte warmte", kpis.get("Jaarlijkse ongedekte warmte [kWhth]"), "kWhth"),
                 ("Gas-/brandstofinput", float(df.attrs.get("kpis", {}).get("annual_fuel_input_kWh", 0.0)), "kWh"),
             ],
-        ),
-        _report_table(
-            "Netcapaciteit",
+            title="Beslissingssamenvatting",
+        )
+        _pdf_table(
+            axes[1],
             [
                 ("Contractvermogen", contract, "kW"),
                 ("Uren > 90% contract", grid_metrics.get("hours_above_90"), "h"),
@@ -2166,40 +2302,58 @@ def build_results_report_html(df: pd.DataFrame, contract: float | None) -> bytes
                 ("Uren > 100% contract", grid_metrics.get("hours_above_100"), "h"),
                 ("Gemiddelde netruimte", grid_metrics.get("avg_headroom_kW"), "kW"),
                 ("Benuttingsgraad", grid_metrics.get("load_factor"), ""),
+                ("Zelfvoorziening", None if grid_metrics.get("self_sufficiency") is None else 100.0 * float(grid_metrics["self_sufficiency"]), "%"),
             ],
-        ),
-        _report_dataframe("Maandverbruik", monthly_energy_by_category(df, ELECTRIC_CONSUMPTION_CATEGORIES)),
-        _report_dataframe("Herkomst elektriciteit per maand", monthly_energy_by_category(df, ELECTRICITY_SUPPLY_CATEGORIES)),
-        _report_dataframe("Warmtebalans per maand", monthly_energy_by_category(df, HEAT_SUPPLY_CATEGORIES)),
-        _report_dataframe("Opslagstromen per maand", monthly_energy_by_category(df, STORAGE_CATEGORIES)),
-    ]
+            title="Netcapaciteit",
+        )
+        _pdf_finish_page(pdf, fig)
 
-    html = f"""<!doctype html>
-<html lang="nl">
-<head>
-  <meta charset="utf-8">
-  <title>Resultatenrapport energieplanner</title>
-  <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 36px; color: #1f2933; }}
-    h1 {{ margin-bottom: 4px; }}
-    h2 {{ margin-top: 28px; border-bottom: 1px solid #d8dee8; padding-bottom: 6px; }}
-    h3 {{ margin-top: 22px; }}
-    .meta {{ color: #5b6778; margin-bottom: 28px; }}
-    table {{ border-collapse: collapse; width: 100%; margin: 8px 0 18px; font-size: 13px; }}
-    th, td {{ border: 1px solid #d8dee8; padding: 7px 9px; text-align: right; }}
-    th:first-child, td:first-child {{ text-align: left; }}
-    th {{ background: #f4f7fb; }}
-    .note {{ background: #f6f8fb; padding: 12px 14px; border-left: 4px solid #0b5fff; }}
-  </style>
-</head>
-<body>
-  <h1>Resultatenrapport energieplanner</h1>
-  <p class="meta">Gegenereerd op {escape(generated_at)} · Projectbestand en ruwe data blijven apart downloadbaar in de app.</p>
-  <p class="note">Dit rapport vat de resultatenpagina samen: netcapaciteit, verbruik, herkomst van elektriciteit, warmte/gasloosheid en opslag. Gebruik de interactieve app voor detailanalyse per tijdstap.</p>
-  {''.join(sections)}
-</body>
-</html>"""
-    return html.encode("utf-8")
+        fig, axes = plt.subplots(2, 1, figsize=(11.69, 8.27))
+        _pdf_header(fig, "Netcapaciteit")
+        _pdf_plot_peak_grid_week(axes[0], df, contract)
+        _pdf_plot_duration(axes[1], df, contract)
+        _pdf_finish_page(pdf, fig)
+
+        fig, axes = plt.subplots(2, 1, figsize=(11.69, 8.27))
+        _pdf_header(fig, "Jaarprofielen")
+        _pdf_plot_daily_area(axes[0], "Jaarprofiel verbruik", daily_energy_by_category(df, ELECTRIC_CONSUMPTION_CATEGORIES))
+        _pdf_plot_daily_area(axes[1], "Jaarprofiel opwek", daily_energy_by_category(df, GENERATION_CATEGORIES))
+        _pdf_finish_page(pdf, fig)
+
+        fig, axes = plt.subplots(2, 2, figsize=(11.69, 8.27))
+        _pdf_header(fig, "Verbruik En Herkomst Elektriciteit")
+        _pdf_plot_pie(axes[0, 0], "Jaarmix verbruik", annual_energy_by_category(df, ELECTRIC_CONSUMPTION_CATEGORIES))
+        _pdf_plot_monthly(axes[0, 1], "Maandverbruik", monthly_energy_by_category(df, ELECTRIC_CONSUMPTION_CATEGORIES))
+        _pdf_plot_pie(axes[1, 0], "Herkomst elektriciteit", annual_energy_by_category(df, ELECTRICITY_SUPPLY_CATEGORIES))
+        _pdf_plot_monthly(axes[1, 1], "Herkomst elektriciteit per maand", monthly_energy_by_category(df, ELECTRICITY_SUPPLY_CATEGORIES))
+        _pdf_finish_page(pdf, fig)
+
+        fig, axes = plt.subplots(3, 1, figsize=(11.69, 8.27))
+        _pdf_header(fig, "Warmte En Gasloosheid")
+        _pdf_plot_monthly(axes[0], "Warmtebalans per maand", monthly_energy_by_category(df, HEAT_SUPPLY_CATEGORIES), unit="kWhth")
+        _pdf_plot_peak_week(axes[1], df, "Q_heat_demand_kWth", ["Q_heat_demand_kWth", "Q_hp_th_kWth", "Q_wkk_used_kWth", "Q_boiler_th_kWth", "Q_dh_th_kWth", "Q_heat_from_reference_kWth", "Q_heat_unserved_final_kWth"], "Zwaarste warmteweek", "Warmtevermogen [kWth]")
+        _pdf_plot_gas_week(axes[2], df)
+        _pdf_finish_page(pdf, fig)
+
+        fig, axes = plt.subplots(2, 1, figsize=(11.69, 8.27))
+        _pdf_header(fig, "Opslag En Flexibiliteit")
+        _pdf_plot_monthly(axes[0], "Opslagstromen per maand", monthly_energy_by_category(df, STORAGE_CATEGORIES))
+        if "battery_soc_pct" in df.columns:
+            worst_week_idx = find_worst_grid_week(df)
+            if len(worst_week_idx) > 0:
+                week = df.loc[worst_week_idx]
+                axes[1].set_title("Batterijvulling in zwaarste netweek", loc="left", fontsize=10, fontweight="bold")
+                axes[1].plot(_pdf_time_index(week.index), week["battery_soc_pct"], linewidth=1.8, color="#0B5FFF")
+                axes[1].set_ylabel("Vullingsgraad [%]")
+                axes[1].grid(axis="y", alpha=0.25)
+            else:
+                axes[1].axis("off")
+        else:
+            axes[1].text(0.02, 0.5, "Geen batterij-SOC beschikbaar.", transform=axes[1].transAxes, fontsize=9)
+            axes[1].axis("off")
+        _pdf_finish_page(pdf, fig)
+    memory.seek(0)
+    return memory.getvalue()
 
 
 def render_model_quality_section(df: pd.DataFrame) -> None:
@@ -2371,10 +2525,10 @@ def render_results_dashboard(df: pd.DataFrame, contract: float | None, cfg=None)
     with c_export3:
         st.download_button(
             "Download resultatenrapport",
-            build_results_report_html(df, contract),
-            file_name="resultatenrapport_energieplanner.html",
-            mime="text/html",
-            help="Wat: downloadt een compacte rapportversie van de resultatenpagina. In het model verandert dit niets. Effect: geschikt voor delen of printen naar PDF.",
+            build_results_report_pdf(df, contract),
+            file_name="resultatenrapport_energieplanner.pdf",
+            mime="application/pdf",
+            help="Wat: downloadt een PDF-rapportversie van de resultatenpagina. In het model verandert dit niets. Effect: geschikt voor delen, printen of klantbespreking.",
         )
 
 

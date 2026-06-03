@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import textwrap
 from pathlib import Path
+import textwrap
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
@@ -11,256 +11,260 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "assets" / "inventarisatie_energieplanner.pdf"
 
 
-SECTIONS = [
+PAGES = [
     {
-        "title": "1. Project en klantcontext",
-        "intro": "Doel: vastleggen voor welk gebouw de simulatie wordt gemaakt en welke beperking leidend is, bijvoorbeeld gasloos worden of bouwen binnen een kleine netaansluiting.",
-        "essential": [
-            ("Bedrijfsnaam en locatie", "Nodig om klimaat, gebouwcontext en rapportage te koppelen."),
-            ("Contactpersoon en rol", "Nodig om aannames en ontbrekende gegevens te kunnen valideren."),
-            ("Doel van de analyse", "Bepaalt of de nadruk ligt op gasloosheid, netcapaciteit, kosten of opwek."),
-            ("Huidig contractvermogen elektriciteit [kW]", "Bepaalt de grens voor het stoplicht en slim laden."),
-            ("Beschikbare energierekeningen of meetdata", "Nodig om het model te ijken op werkelijk verbruik."),
-        ],
-        "extra": [
-            ("Gewenste opleverdatum of besluitmoment", "Helpt bepalen hoeveel detailniveau haalbaar is."),
-            ("Geplande verbouwing of uitbreiding", "Beïnvloedt toekomstige energievraag en netcapaciteit."),
+        "title": "Gebruik",
+        "subtitle": "Zelfde structuur als de app-tab Gebruik. Verzamel hiermee de basis van het gebouw en de vraagprofielen.",
+        "sections": [
+            (
+                "Gebouw",
+                [
+                    ("Gebouwtype", "Ja", "Kantoor / school / zorg / industrie / retail / anders", "Kiest standaardprofiel voor gebruik en energievraag."),
+                    ("Bouwjaar / klasse", "Ja", "Voor 1992 / 1992-2005 / 2006-2014 / 2015+", "Bepaalt isolatieniveau en warmteverlies."),
+                    ("Oriëntatie gebouw", "Ja", "N / NO / O / ZO / Z / ZW / W / NW", "Beïnvloedt zoninstraling, warmtelast en PV-potentieel."),
+                    ("Gebruiksoppervlak BVO [m²]", "Ja", "Getal", "Schaalt warmte-, koel- en elektriciteitsvraag."),
+                    ("Aantal verdiepingen", "Ja", "Getal", "Helpt gebouwvorm en verliesoppervlak inschatten."),
+                    ("Gebouwvorm", "Nee", "Compact / rechthoekig / L-vormig / uitgestrekt", "Verbetert de schatting van verliesoppervlak."),
+                    ("Openingstijden", "Ja", "Dagen + tijden", "Bepaalt wanneer comforttemperaturen en lasten actief zijn."),
+                ],
+            ),
+            (
+                "Gebouwdetails - temperatuurinstellingen",
+                [
+                    ("Verwarming tijdens gebruik [°C]", "Ja", "Bijv. 20", "Bepaalt warmtevraag tijdens bezetting."),
+                    ("Verwarming buiten gebruik [°C]", "Ja", "Bijv. 15", "Bepaalt nacht/weekend-setback."),
+                    ("Koeling tijdens gebruik [°C]", "Ja", "Bijv. 24", "Bepaalt koelvraag tijdens bezetting."),
+                    ("Koeling buiten gebruik [°C]", "Nee", "Bijv. 28", "Bepaalt setup buiten gebruik."),
+                ],
+            ),
+            (
+                "Gebouwdetails - ventilatie, glas en zon",
+                [
+                    ("WTW-rendement", "Nee", "0-95%", "Verlaagt ventilatieverliezen als WTW aanwezig is."),
+                    ("Luchtdichtheid / qv10", "Nee", "Getal of onbekend", "Verbetert warmteverliesberekening."),
+                    ("Glaspercentage", "Nee", "Schatting per gevel", "Beïnvloedt zonnewinst en koelvraag."),
+                    ("G-waarde / zonwering", "Nee", "Waarde of beschrijving", "Verbetert inschatting van zonnewinst."),
+                ],
+            ),
         ],
     },
     {
-        "title": "2. Gebouw",
-        "intro": "Doel: de basisvorm van het gebouw bepalen. Dit stuurt de berekening van warmtevraag, koelvraag en standaard elektrische lasten.",
-        "essential": [
-            ("Gebouwtype", "Bepaalt standaardprofielen voor gebruik, bezetting en energievraag."),
-            ("Bouwjaar of bouwjaarklasse", "Bepaalt isolatieniveau en warmteverlies."),
-            ("Hoofdoriëntatie", "Beïnvloedt zoninstraling, warmtelast en PV-potentieel."),
-            ("Gebruiksoppervlak/BVO [m²]", "Schaalt warmte-, koel- en elektriciteitsvraag."),
-            ("Aantal verdiepingen", "Beïnvloedt gebouwvorm en verliesoppervlak."),
-            ("Openingstijden en gebruiksdagen", "Bepaalt wanneer comforttemperaturen en lasten actief zijn."),
-        ],
-        "extra": [
-            ("Gebouwvorm", "Verbetert inschatting van verliesoppervlak."),
-            ("Glaspercentage", "Beïnvloedt zonnewinst en koelvraag."),
-            ("Plattegrond of energielabel", "Helpt aannames controleren."),
-        ],
-    },
-    {
-        "title": "3. Gebouwdetails",
-        "intro": "Doel: comfortinstellingen en schilparameters vastleggen. Deze bepalen hoeveel warmte en koeling het gebouw thermisch nodig heeft.",
-        "essential": [
-            ("Verwarmingstemperatuur tijdens gebruik [°C]", "Bepaalt warmtevraag tijdens bezetting."),
-            ("Verwarmingstemperatuur buiten gebruik [°C]", "Bepaalt setback en nacht/weekend-warmtevraag."),
-            ("Koeltemperatuur tijdens gebruik [°C]", "Bepaalt koelvraag tijdens bezetting."),
-            ("Ventilatie of luchtverversing", "Bepaalt ventilatieverlies en benodigde warmte/koeling."),
-        ],
-        "extra": [
-            ("WTW-rendement", "Verlaagt ventilatieverliezen als warmteterugwinning aanwezig is."),
-            ("Infiltratie/qv10", "Verbetert warmteverliesberekening."),
-            ("G-waarde glas en zonwering", "Verbetert inschatting van zonnewinst en koelvraag."),
-        ],
-    },
-    {
-        "title": "4. Elektrisch verbruik",
-        "intro": "Doel: basisverbruik en gebruiksprofiel vastleggen. Dit bepaalt de elektrische vraag voordat opwek, warmte-installaties en opslag worden meegenomen.",
-        "essential": [
-            ("Jaarverbruik elektriciteit [kWh]", "Geeft de grootteorde van de elektrische vraag."),
-            ("Piekvermogen of kwartierpiek [kW]", "Belangrijk voor netcapaciteit en contractoverschrijding."),
-            ("Gebruikspatroon per week", "Bepaalt wanneer elektrische lasten optreden."),
-            ("Grote elektrische verbruikers", "Helpt pieken verklaren en maatregelen richten."),
-        ],
-        "extra": [
-            ("15-minuten meetdata", "Maakt validatie en piekanalyse veel betrouwbaarder."),
-            ("Onderverdeling verlichting/ICT/apparatuur", "Maakt de verbruiksmix en maatregelen concreter."),
-        ],
-    },
-    {
-        "title": "5. Processen",
-        "intro": "Doel: proceslasten scheiden van gebouwgebonden verbruik. Proceslasten kunnen dominant zijn voor pieken en jaarverbruik.",
-        "essential": [
-            ("Type processen", "Bepaalt of lasten continu, batchmatig of seizoensgebonden zijn."),
-            ("Vermogen per proces [kW]", "Bepaalt piekbelasting en totaalverbruik."),
-            ("Bedrijfstijden per proces", "Bepaalt timing van verbruik en load match met PV."),
-            ("Gelijktijdigheid", "Bepaalt of procespieken optellen of gespreid zijn."),
-        ],
-        "extra": [
-            ("Proceswarmte of restwarmte", "Kan relevant zijn voor gasloosheid of warmteopslag."),
-            ("Sturingsmogelijkheden", "Geeft flexibiliteit voor piekverlaging."),
+        "title": "Verbruik",
+        "subtitle": "Gebruiksprofielen bepalen wanneer vraag optreedt en welke onderdelen pieken veroorzaken.",
+        "sections": [
+            (
+                "Elektrisch verbruik",
+                [
+                    ("Jaarverbruik elektriciteit [kWh]", "Ja", "Factuur / meting", "Geeft de grootteorde van elektrische vraag."),
+                    ("Piekvermogen / kwartierpiek [kW]", "Ja", "Meting / netbeheerder", "Belangrijk voor netcapaciteit."),
+                    ("Basisverbruik tijdens gebruik", "Nee", "W/m² of kW", "Vult profiel in als meetdata ontbreekt."),
+                    ("Basisverbruik buiten gebruik", "Nee", "W/m² of kW", "Bepaalt nacht/weekendlast."),
+                    ("Meetdata beschikbaar", "Ja", "15 min / 30 min / uur / nee", "Maakt validatie en piekanalyse betrouwbaarder."),
+                ],
+            ),
+            (
+                "Processen",
+                [
+                    ("Procesnaam/type", "Ja", "Lijst", "Scheidt proceslasten van gebouwgebonden verbruik."),
+                    ("Procesvermogen [kW]", "Ja", "Per proces", "Bepaalt piekbelasting."),
+                    ("Bedrijfstijden", "Ja", "Dagen + tijden", "Bepaalt timing en load match met PV."),
+                    ("Gelijktijdigheid", "Nee", "Altijd / deels / zelden", "Bepaalt of pieken optellen."),
+                    ("Sturingsmogelijkheden", "Nee", "Ja/nee + toelichting", "Geeft flexibiliteit voor piekverlaging."),
+                ],
+            ),
+            (
+                "Mobiliteit",
+                [
+                    ("Aantal elektrische auto's", "Ja", "Getal", "Schaalt de totale laadenergie."),
+                    ("Laadvermogen per auto [kW]", "Ja", "Bijv. 11/22/50", "Bepaalt laadpieken."),
+                    ("Gemiddelde batterijcapaciteit [kWh]", "Ja", "Bijv. 60", "Bepaalt energiebehoefte per auto."),
+                    ("Aankomst- en vertrektijd", "Ja", "Tijden", "Bepaalt laadvenster."),
+                    ("Aankomst- en vertreklading [%]", "Ja", "Bijv. 50 -> 80", "Bepaalt benodigde energie per auto."),
+                    ("Aanwezige auto's [%]", "Nee", "0-100%", "Maakt laadprofiel realistischer."),
+                    ("Laadmodus", "Ja", "Direct laden / slim laden", "Slim laden blijft binnen contractruimte waar mogelijk."),
+                ],
+            ),
+            (
+                "Overig verbruik",
+                [
+                    ("Type overige lasten", "Ja", "Pompen / terrein / verlichting / anders", "Voorkomt ontbrekende structurele lasten."),
+                    ("Vermogen [kW of W/m²]", "Ja", "Getal", "Bepaalt bijdrage aan totaalverbruik."),
+                    ("Gebruikstijden", "Ja", "Dagen + tijden", "Bepaalt timing en piekbijdrage."),
+                ],
+            ),
         ],
     },
     {
-        "title": "6. Mobiliteit",
-        "intro": "Doel: laadbehoefte van elektrische voertuigen modelleren. Dit bepaalt extra elektriciteitsvraag en mogelijke pieken binnen het contractvermogen.",
-        "essential": [
-            ("Aantal elektrische auto's", "Schaalt de totale laadenergie."),
-            ("Laadvermogen per auto [kW]", "Bepaalt hoe hoog laadpieken kunnen worden."),
-            ("Gemiddelde batterijcapaciteit [kWh]", "Bepaalt energiebehoefte per voertuig."),
-            ("Aankomst- en vertrektijd", "Bepaalt venster waarin geladen kan worden."),
-            ("Aankomstlading en gewenste vertreklading [%]", "Bepaalt hoeveel energie per auto nodig is."),
-        ],
-        "extra": [
-            ("Percentage aanwezige auto's", "Maakt het laadprofiel realistischer."),
-            ("Maximaal laadvermogen locatie [kW]", "Begrenst de totale laadpiek."),
-            ("Slim laden gewenst ja/nee", "Bepaalt of laden binnen contractruimte wordt gestuurd."),
-        ],
-    },
-    {
-        "title": "7. Overig verbruik",
-        "intro": "Doel: restlasten vastleggen die niet onder gebouw, processen of mobiliteit vallen, zodat de totale basislast volledig is.",
-        "essential": [
-            ("Type overige lasten", "Voorkomt dat structureel verbruik ontbreekt."),
-            ("Geschat vermogen tijdens gebruik [kW of W/m²]", "Bepaalt bijdrage aan totaalverbruik."),
-            ("Gebruikstijden", "Bepaalt timing en piekbijdrage."),
-        ],
-        "extra": [
-            ("Buitenverlichting, pompen, terreininstallaties", "Vaak kleine maar structurele posten."),
-            ("Seizoensafhankelijkheid", "Kan zomer- of winterpieken verklaren."),
-        ],
-    },
-    {
-        "title": "8. Opwek - zonnepanelen",
-        "intro": "Doel: PV-opwek berekenen en vergelijken met de vraag. Richting en vermogen bepalen opbrengst en load match.",
-        "essential": [
-            ("PV aanwezig of gewenst", "Bepaalt of PV wordt meegenomen."),
-            ("Geïnstalleerd of gewenst vermogen [kWp]", "Bepaalt jaaropwek en piekopwek."),
-            ("Richting zonnepanelen", "Bepaalt ochtend-, middag- en avondopbrengst."),
-            ("Dakhelling [°]", "Beïnvloedt opbrengst per seizoen."),
-        ],
-        "extra": [
-            ("Beschikbaar dakoppervlak", "Controleert of gewenst vermogen realistisch is."),
-            ("Schaduw of obstakels", "Kan opbrengst sterk beperken."),
-            ("Omvormerbeperkingen", "Beïnvloedt piekvermogen en clipping."),
+        "title": "Opwek",
+        "subtitle": "Deze gegevens bepalen lokale opwek, herkomst van elektriciteit en teruglevering.",
+        "sections": [
+            (
+                "Zonnepanelen",
+                [
+                    ("PV aanwezig/gewenst", "Ja", "Ja / nee", "Bepaalt of PV wordt meegenomen."),
+                    ("Vermogen zonnepanelen [kWp]", "Ja", "Getal", "Bepaalt jaaropwek en piekopwek."),
+                    ("Richting zonnepanelen", "Ja", "N / NO / O / ZO / Z / ZW / W / NW", "Bepaalt ochtend-, middag- en jaaropbrengst."),
+                    ("Dakhelling [°]", "Ja", "0-90", "Beïnvloedt seizoensopbrengst."),
+                    ("Beschikbaar dakoppervlak", "Nee", "m² of tekening", "Controleert of gewenst vermogen realistisch is."),
+                    ("Schaduw/obstakels", "Nee", "Beschrijving", "Kan opbrengst sterk beperken."),
+                ],
+            ),
+            (
+                "WKK",
+                [
+                    ("WKK aanwezig/gewenst", "Ja", "Ja / nee", "Bepaalt of WKK wordt meegenomen."),
+                    ("Elektrisch vermogen [kW]", "Ja", "Getal", "Bepaalt maximale lokale elektriciteitsproductie."),
+                    ("Thermisch rendement/vermogen", "Ja", "Getal", "Bepaalt hoeveel warmte WKK kan leveren."),
+                    ("WKK-regeling", "Ja", "Elektriciteitsvraag / warmtevraag / hybride piekverlaging / altijd / uit", "Bepaalt wanneer WKK draait."),
+                    ("Brandstoftype", "Nee", "Gas / biogas / waterstof / anders", "Belangrijk voor gasloosheid en emissie-interpretatie."),
+                ],
+            ),
+            (
+                "Net",
+                [
+                    ("Contractvermogen [kW]", "Ja", "Getal", "Bepaalt stoplicht en overschrijdingen."),
+                    ("Terugleverlimiet [kW]", "Nee", "Getal of onbekend", "Beïnvloedt PV/WKK-overschot en batterijwaarde."),
+                    ("Netverzwaring mogelijk", "Nee", "Ja / nee / onzeker", "Helpt maatregelen prioriteren."),
+                ],
+            ),
         ],
     },
     {
-        "title": "9. Opwek - WKK en net",
-        "intro": "Doel: lokale brandstofgestuurde opwek en netgrenzen vastleggen. Dit is belangrijk voor piekverlaging, warmteproductie en gasloosheidsanalyse.",
-        "essential": [
-            ("WKK aanwezig ja/nee", "Bepaalt of elektrische en thermische WKK-opwek wordt meegenomen."),
-            ("Elektrisch WKK-vermogen [kW]", "Bepaalt maximale lokale elektriciteitsproductie."),
-            ("Thermisch rendement of warmtevermogen", "Bepaalt hoeveel warmte de WKK kan leveren."),
-            ("WKK-regeling", "Bepaalt of de WKK stuurt op stroomvraag, warmtevraag of piekverlaging."),
-            ("Contractvermogen netaansluiting [kW]", "Bepaalt of scenario's binnen de aansluiting passen."),
-        ],
-        "extra": [
-            ("Brandstoftype en brandstofverbruik", "Belangrijk voor gasloosheid en CO2-interpretatie."),
-            ("Terugleverbeperkingen", "Beïnvloedt PV/WKK-overschot en batterijwaarde."),
-        ],
-    },
-    {
-        "title": "10. Warmte-installaties",
-        "intro": "Doel: bepalen hoe thermische warmtevraag wordt ingevuld. Het gebouw bepaalt de vraag; installaties zetten die om naar elektriciteit, gas of warmte.",
-        "essential": [
-            ("Warmtepomp aanwezig/gewenst", "Bepaalt of warmtevraag elektrisch wordt geleverd."),
-            ("Warmtepompvermogen [kWth]", "Bepaalt hoeveel warmtevraag direct gedekt kan worden."),
-            ("COP-berekening of COP-waarde", "Bepaalt elektriciteitsvraag van de warmtepomp."),
-            ("Ketel aanwezig ja/nee en vermogen [kWth]", "Bepaalt resterende brandstofgestuurde warmtedekking."),
-            ("Warmtenet aanwezig ja/nee en capaciteit [kWth]", "Bepaalt externe warmtelevering."),
-        ],
-        "extra": [
-            ("Aanvoertemperaturen", "Beïnvloeden haalbare COP en warmtepompgeschiktheid."),
-            ("Brandstoftype ketel", "Nodig voor gasloosheidsinterpretatie."),
-            ("Onderhouds- of regelbeperkingen", "Kan inzetbaarheid beperken."),
-        ],
-    },
-    {
-        "title": "11. Opslag",
-        "intro": "Doel: flexibiliteit modelleren. Batterijen verlagen netpieken en benutten overschot; warmteopslag kan warmtepiek en gasvraag verlagen.",
-        "essential": [
-            ("Batterij aanwezig/gewenst", "Bepaalt of elektrische opslag wordt meegenomen."),
-            ("Batterijcapaciteit [kWh]", "Bepaalt hoeveel energie kan worden opgeslagen."),
-            ("Laad- en ontlaadvermogen [kW]", "Bepaalt hoe snel pieken kunnen worden verlaagd."),
-            ("Laadstrategie batterij", "Bepaalt of de batterij alleen lokaal overschot gebruikt of ook contractruimte benut."),
-        ],
-        "extra": [
-            ("Min/max state of charge [%]", "Bepaalt bruikbare opslagruimte."),
-            ("Rendement", "Bepaalt verliezen bij laden en ontladen."),
-            ("Warmteopslagcapaciteit [kWhth]", "Relevant voor gasloosheid en warmtepiekverlaging."),
+        "title": "Warmte En Opslag",
+        "subtitle": "Het gebouw bepaalt de thermische vraag; installaties en opslag bepalen hoe die wordt geleverd.",
+        "sections": [
+            (
+                "Referentie-installatie",
+                [
+                    ("Referentie elektrische verwarming gebruiken", "Ja", "Ja / nee", "Fallback als geen expliciete warmtebron de vraag dekt."),
+                    ("Referentie COP verwarming", "Ja", "Winter/lente/zomer/herfst", "Rekent resterende warmtevraag om naar elektriciteit."),
+                    ("Referentie EER koeling", "Ja", "Winter/lente/zomer/herfst", "Rekent koelvraag om naar elektriciteit."),
+                ],
+            ),
+            (
+                "Warmtepomp",
+                [
+                    ("Warmtepomp aanwezig/gewenst", "Ja", "Ja / nee", "Bepaalt of warmte elektrisch geleverd wordt."),
+                    ("Warmtepompvermogen [kWth]", "Ja", "Getal", "Bepaalt hoeveel warmtevraag direct gedekt kan worden."),
+                    ("COP-berekening", "Ja", "Vast / seizoen / weersafhankelijk", "Bepaalt elektriciteitsvraag van warmtepomp."),
+                    ("Nominale COP", "Ja", "Getal", "Bepaalt stroomverbruik bij vaste COP."),
+                    ("Max elektrisch vermogen locatie [kW]", "Nee", "Getal", "Begrenst warmtepomp bij krappe aansluiting."),
+                ],
+            ),
+            (
+                "Ketel en warmtenet",
+                [
+                    ("Ketel aanwezig + vermogen [kWth]", "Ja", "Ja/nee + getal", "Dekt resterende warmtevraag met brandstof."),
+                    ("Ketelrendement", "Ja", "0-100%", "Bepaalt brandstofinput."),
+                    ("Brandstoftype ketel", "Ja", "Gas / biogas / waterstof / anders", "Bepaalt gasloosheidsinterpretatie."),
+                    ("Warmtenet aanwezig + capaciteit", "Ja", "Ja/nee + getal", "Dekt warmtevraag via externe warmte."),
+                ],
+            ),
+            (
+                "Opslag",
+                [
+                    ("Batterij aanwezig/gewenst", "Ja", "Ja / nee", "Bepaalt elektrische opslag en piekverlaging."),
+                    ("Batterijcapaciteit [kWh]", "Ja", "Getal", "Bepaalt hoeveel energie kan worden opgeslagen."),
+                    ("Laad-/ontlaadvermogen [kW]", "Ja", "Getal", "Bepaalt hoe snel pieken worden verlaagd."),
+                    ("Laadstrategie batterij", "Ja", "Alleen lokaal overschot / laden tot contractruimte", "Bepaalt wanneer batterij mag laden."),
+                    ("Warmteopslagcapaciteit [kWhth]", "Nee", "Getal", "Kan warmtepiek en gasvraag verlagen."),
+                ],
+            ),
         ],
     },
     {
-        "title": "12. Meetdata en validatie",
-        "intro": "Doel: modelresultaten vergelijken met werkelijkheid. Meetdata maakt aannames controleerbaar en verhoogt betrouwbaarheid.",
-        "essential": [
-            ("Elektriciteitsmeetdata of facturen", "Nodig om jaarverbruik en pieken te controleren."),
-            ("Gasmeterdata of gasfacturen", "Nodig om warmtevraag en gasloosheid te toetsen."),
-            ("Meetperiode en resolutie", "Bepaalt hoe goed de simulatie vergeleken kan worden."),
-        ],
-        "extra": [
-            ("Submetering per proces of gebouwdeel", "Maakt oorzaken van pieken duidelijker."),
-            ("Bekende afwijkende weken", "Voorkomt verkeerde conclusies door vakantie, storing of productiepieken."),
+        "title": "Meetdata En Validatie",
+        "subtitle": "Meetdata maakt het model controleerbaar en voorkomt dat beslissingen op verkeerde aannames rusten.",
+        "sections": [
+            (
+                "Meetdata",
+                [
+                    ("Elektriciteitsdata", "Ja", "15 min / 30 min / uur / factuur", "Controleert jaarverbruik en pieken."),
+                    ("Gasdata", "Ja", "15 min / uur / factuur", "Controleert warmtevraag en gasloosheid."),
+                    ("Warmtedata", "Nee", "kWth / GJ / anders", "Helpt warmtebalans valideren."),
+                    ("Meetperiode", "Ja", "Start/einddatum", "Bepaalt vergelijkbaarheid met weerjaar."),
+                    ("Ontbrekende waarden", "Nee", "Geen / beperkt / veel", "Bepaalt hoe betrouwbaar validatie is."),
+                ],
+            ),
+            (
+                "Bijlagen",
+                [
+                    ("Energiefacturen", "Ja", "Elektriciteit/gas/warmte", "Geeft snelle baseline."),
+                    ("Plattegrond/dakplan", "Nee", "PDF/tekening/foto", "Helpt gebouwvorm en PV-potentieel."),
+                    ("Installatielijst", "Nee", "Excel/PDF/foto", "Helpt vermogen en rendement controleren."),
+                    ("Bekende afwijkende weken", "Nee", "Vakantie/storing/productiepiek", "Voorkomt verkeerde conclusies."),
+                ],
+            ),
         ],
     },
 ]
 
 
-def draw_wrapped(ax, x: float, y: float, text: str, *, size: float = 9.0, weight: str = "normal", width: int = 95) -> float:
-    lines = textwrap.wrap(text, width=width) or [""]
-    ax.text(x, y, "\n".join(lines), ha="left", va="top", fontsize=size, fontweight=weight)
-    return y - 0.035 * len(lines)
+def wrap(text: str, width: int) -> str:
+    return "\n".join(textwrap.wrap(str(text), width=width)) if text else ""
 
 
-def draw_items(ax, y: float, title: str, items: list[tuple[str, str]], *, required: bool) -> float:
-    color = "#0B5FFF" if required else "#56616F"
-    y = draw_wrapped(ax, 0.06, y, title, size=10.5, weight="bold")
-    y -= 0.006
-    for label, why in items:
-        ax.text(0.075, y, "□", ha="left", va="top", fontsize=10, color=color)
-        field = f"{label}: ________________________________"
-        y = draw_wrapped(ax, 0.105, y, field, size=8.8, weight="bold", width=76)
-        y = draw_wrapped(ax, 0.105, y, f"Waarom nodig: {why}", size=7.7, width=90)
-        y -= 0.012
-    return y
+def add_header(fig, title: str, subtitle: str) -> None:
+    fig.text(0.045, 0.965, title, ha="left", va="top", fontsize=15, fontweight="bold")
+    fig.text(0.045, 0.925, subtitle, ha="left", va="top", fontsize=8.5, color="#56616F")
+    fig.text(0.955, 0.965, "Inventarisatie energieplanner", ha="right", va="top", fontsize=8.5, color="#56616F")
 
 
-def add_page(pdf: PdfPages, section: dict) -> None:
-    fig = plt.figure(figsize=(8.27, 11.69))
+def add_section_table(ax, title: str, rows: list[tuple[str, str, str, str]]) -> None:
+    ax.axis("off")
+    ax.set_title(title, loc="left", fontsize=10.5, fontweight="bold", pad=5)
+    cell_text = [[wrap(a, 23), b, wrap(c, 31), wrap(d, 38), ""] for a, b, c, d in rows]
+    table = ax.table(
+        cellText=cell_text,
+        colLabels=["Veld", "Ess.", "Opties / invullen", "Waarom nodig", "Waarde"],
+        cellLoc="left",
+        colLoc="left",
+        loc="upper left",
+        colWidths=[0.19, 0.055, 0.24, 0.28, 0.235],
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(6.6)
+    table.scale(1.0, 1.42)
+    for (row, col), cell in table.get_celld().items():
+        cell.set_edgecolor("#D8DEE8")
+        cell.PAD = 0.025
+        if row == 0:
+            cell.set_facecolor("#F4F7FB")
+            cell.set_text_props(fontweight="bold")
+        elif col == 1 and cell.get_text().get_text() == "Ja":
+            cell.set_text_props(color="#0B5FFF", fontweight="bold")
+
+
+def add_cover(pdf: PdfPages) -> None:
+    fig = plt.figure(figsize=(11.69, 8.27))
     ax = fig.add_axes([0, 0, 1, 1])
     ax.axis("off")
-    ax.text(0.06, 0.965, "Inventarisatie energieplanner", ha="left", va="top", fontsize=10, color="#56616F")
-    ax.text(0.94, 0.965, "Essentieel en aanvullend", ha="right", va="top", fontsize=10, color="#56616F")
-    y = 0.925
-    y = draw_wrapped(ax, 0.06, y, section["title"], size=15, weight="bold", width=80)
-    y -= 0.012
-    y = draw_wrapped(ax, 0.06, y, section["intro"], size=9.3, width=100)
-    y -= 0.025
-    y = draw_items(ax, y, "Essentiële informatie", section["essential"], required=True)
-    if y < 0.30:
-        pdf.savefig(fig, bbox_inches="tight")
-        plt.close(fig)
-        fig = plt.figure(figsize=(8.27, 11.69))
-        ax = fig.add_axes([0, 0, 1, 1])
-        ax.axis("off")
-        ax.text(0.06, 0.965, "Inventarisatie energieplanner", ha="left", va="top", fontsize=10, color="#56616F")
-        y = 0.92
-    y -= 0.015
-    y = draw_items(ax, y, "Aanvullend handig", section["extra"], required=False)
-    ax.text(0.06, 0.075, "Opmerkingen:", ha="left", va="top", fontsize=9, fontweight="bold")
-    for i in range(4):
-        yy = 0.055 - i * 0.022
-        ax.plot([0.06, 0.94], [yy, yy], color="#CBD2D9", linewidth=0.8)
+    ax.text(0.055, 0.78, "Inventarisatieformulier", ha="left", va="top", fontsize=25, fontweight="bold")
+    ax.text(0.055, 0.71, "Energieplanner gebouw", ha="left", va="top", fontsize=16, color="#0B5FFF", fontweight="bold")
+    intro = (
+        "Compact klantformulier voor consultants. De structuur volgt de app: Gebruik, Verbruik, Opwek, "
+        "Warmte/Opslag en Meetdata. Velden met 'Ja' zijn essentieel voor een bruikbare basissimulatie; "
+        "andere velden verhogen nauwkeurigheid of rapportkwaliteit."
+    )
+    ax.text(0.055, 0.62, wrap(intro, 120), ha="left", va="top", fontsize=10)
+    for i, label in enumerate(["Klant/locatie", "Datum bezoek", "Consultant", "Contactpersoon"]):
+        y = 0.48 - i * 0.07
+        ax.text(0.055, y, f"{label}:", ha="left", va="top", fontsize=10, fontweight="bold")
+        ax.plot([0.19, 0.72], [y - 0.004, y - 0.004], color="#CBD2D9", linewidth=1)
+    ax.text(0.055, 0.14, "Opmerking: interactieve dropdowns in PDF zijn niet beschikbaar zonder extra PDF-formulierbibliotheek. Daarom staan keuze-opties compact in de tabel.", ha="left", va="top", fontsize=8.5, color="#56616F")
     pdf.savefig(fig, bbox_inches="tight")
     plt.close(fig)
 
 
-def add_cover(pdf: PdfPages) -> None:
-    fig = plt.figure(figsize=(8.27, 11.69))
-    ax = fig.add_axes([0, 0, 1, 1])
-    ax.axis("off")
-    ax.text(0.06, 0.88, "Inventarisatieformulier", ha="left", va="top", fontsize=24, fontweight="bold")
-    ax.text(0.06, 0.835, "Energieplanner gebouw", ha="left", va="top", fontsize=17, color="#0B5FFF", fontweight="bold")
-    intro = (
-        "Gebruik dit formulier bij een klantbezoek om de minimale invoer voor de app te verzamelen. "
-        "Essentiële informatie is nodig voor een betrouwbare eerste simulatie; aanvullende informatie "
-        "maakt de analyse nauwkeuriger en helpt bij rapportage."
-    )
-    draw_wrapped(ax, 0.06, 0.77, intro, size=11, width=88)
-    ax.text(0.06, 0.66, "Klant/locatie: ____________________________________________", ha="left", va="top", fontsize=11)
-    ax.text(0.06, 0.61, "Datum bezoek: ____________________________________________", ha="left", va="top", fontsize=11)
-    ax.text(0.06, 0.56, "Consultant: ______________________________________________", ha="left", va="top", fontsize=11)
-    ax.text(0.06, 0.47, "Legenda", ha="left", va="top", fontsize=13, fontweight="bold")
-    ax.text(0.08, 0.43, "□ Essentieel: nodig voor een bruikbare basissimulatie.", ha="left", va="top", fontsize=10)
-    ax.text(0.08, 0.39, "□ Aanvullend handig: verhoogt nauwkeurigheid of maakt maatregelen concreter.", ha="left", va="top", fontsize=10)
-    ax.text(0.06, 0.16, "Tip: verzamel waar mogelijk meetdata met kwartierwaarden. Dat maakt pieken, netruimte en validatie veel sterker.", ha="left", va="top", fontsize=10, color="#56616F")
+def add_page(pdf: PdfPages, page: dict) -> None:
+    n = len(page["sections"])
+    fig, axes = plt.subplots(n, 1, figsize=(11.69, 8.27))
+    if n == 1:
+        axes = [axes]
+    add_header(fig, page["title"], page["subtitle"])
+    for ax, (title, rows) in zip(axes, page["sections"]):
+        add_section_table(ax, title, rows)
+    fig.tight_layout(rect=[0.035, 0.035, 0.965, 0.885], h_pad=1.0)
     pdf.savefig(fig, bbox_inches="tight")
     plt.close(fig)
 
@@ -269,8 +273,8 @@ def main() -> None:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     with PdfPages(OUT) as pdf:
         add_cover(pdf)
-        for section in SECTIONS:
-            add_page(pdf, section)
+        for page in PAGES:
+            add_page(pdf, page)
     print(OUT)
 
 
