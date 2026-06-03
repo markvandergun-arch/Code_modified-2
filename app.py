@@ -642,6 +642,10 @@ def normalize_input_constraints() -> list[str]:
         st.session_state["mob_target_soc"] = float(st.session_state.get("mob_arrival_soc", 50.0))
         corrections.append("Gewenste vertreklading is verhoogd tot minimaal de aankomstlading.")
 
+    if float(st.session_state.get("dh_tariff", 0.0)) < 0.0:
+        st.session_state["dh_tariff"] = 0.0
+        corrections.append("Warmtenettarief is teruggezet naar minimaal 0.")
+
     return corrections
 
 
@@ -1564,7 +1568,7 @@ def build_cfg():
         district_heat_overrides={
             "enabled": bool(st.session_state["dh_enabled"]),
             "capacity_kWth": float(st.session_state["dh_capacity"]),
-            "tariff_placeholder": float(st.session_state["dh_tariff"]),
+            "tariff_placeholder": max(float(st.session_state["dh_tariff"]), 0.0),
         },
         heat_system_overrides={
             "heating_dispatch_mode": str(st.session_state["heat_dispatch_mode"]),
