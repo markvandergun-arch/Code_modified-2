@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from html import escape
 import io
 import json
 import os
@@ -38,6 +39,7 @@ st.caption("Modelleer het energiegebruik van een gebouw en verken opties zoals z
 
 APP_DIR = Path(__file__).resolve().parent
 WEATHER_PATH = APP_DIR / "Weatherdata 2008-2021.xlsx"
+INVENTORY_PDF_PATH = APP_DIR / "assets" / "inventarisatie_energieplanner.pdf"
 SIM_FREQ = None
 TZ = "Europe/Amsterdam"
 DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -731,6 +733,17 @@ def render_project_controls() -> None:
                 except Exception as exc:
                     st.error(f"Projectbestand kon niet worden geladen: {exc}")
         with c3:
+            if INVENTORY_PDF_PATH.exists():
+                st.download_button(
+                    "Download inventarisatieformulier",
+                    INVENTORY_PDF_PATH.read_bytes(),
+                    file_name="inventarisatie_energieplanner.pdf",
+                    mime="application/pdf",
+                    help="Wat: downloadt een invulformulier voor klantbezoeken. In het model verandert dit niets. Effect: consultants weten welke gegevens essentieel zijn voor een goede simulatie.",
+                )
+            else:
+                st.caption("Inventarisatieformulier nog niet gegenereerd.")
+        with c3:
             if st.button("Reset invoer", key="reset_project_inputs", help="Zet alle invoerinstellingen terug naar de standaardwaarden en wist oude resultaten."):
                 reset_input_state()
                 st.success("Invoerinstellingen teruggezet naar standaardwaarden.")
@@ -1160,7 +1173,13 @@ ELECTRIC_CONSUMPTION_CATEGORIES = [
 GENERATION_CATEGORIES = [
     ("Zonnepanelen", "P_pv_kW"),
     ("WKK elektrisch", "P_wkk_el_kW"),
+]
+
+ELECTRICITY_SUPPLY_CATEGORIES = [
+    ("Zonnepanelen", "P_pv_kW"),
+    ("WKK elektrisch", "P_wkk_el_kW"),
     ("Batterij ontladen", "P_battery_discharge_kW"),
+    ("Netimport", "P_grid_import_kW"),
 ]
 
 HEAT_SUPPLY_CATEGORIES = [
@@ -1680,9 +1699,9 @@ def render_generation_calculation_results(df: pd.DataFrame) -> None:
     )
     c_gen_mix1, c_gen_mix2 = st.columns(2)
     with c_gen_mix1:
-        render_donut_chart("Jaarmix opwek", annual_energy_by_category(df, [("Zonnepanelen", "P_pv_kW"), ("WKK elektrisch", "P_wkk_el_kW")]))
+        render_donut_chart("Herkomst elektriciteit", annual_energy_by_category(df, ELECTRICITY_SUPPLY_CATEGORIES))
     with c_gen_mix2:
-        render_monthly_stacked_bar_chart("Maandopwek", monthly_energy_by_category(df, [("Zonnepanelen", "P_pv_kW"), ("WKK elektrisch", "P_wkk_el_kW")]))
+        render_monthly_stacked_bar_chart("Herkomst elektriciteit per maand", monthly_energy_by_category(df, ELECTRICITY_SUPPLY_CATEGORIES))
     render_load_match_balance_charts(df)
 
 def plot_peak_grid_import_week_stacked(
@@ -2103,6 +2122,86 @@ def build_export_bundle(df: pd.DataFrame, measurement_metadata: dict | None = No
     return memory.getvalue()
 
 
+def _report_table(title: str, rows: list[tuple[str, object, str]]) -> str:
+    body = "\n".join(
+        f"<tr><th>{escape(str(label))}</th><td>{escape(_fmt_kpi(value, unit, 1 if unit in {'%', 'kW', 'kWth', 'h'} else 0))}</td></tr>"
+        for label, value, unit in rows
+    )
+    return f"<h3>{escape(title)}</h3><table>{body}</table>"
+
+
+def _report_dataframe(title: str, data: pd.DataFrame, *, value_col: str = "energie_kWh") -> str:
+    if data.empty:
+        return f"<h3>{escape(title)}</h3><p>Geen data beschikbaar.</p>"
+    pivot = data.pivot_table(index="maand", columns="categorie", values=value_col, aggfunc="sum", fill_value=0.0)
+    pivot = pivot.reindex([m for m in MONTH_ORDER if m in pivot.index])
+    return f"<h3>{escape(title)}</h3>{pivot.round(0).to_html(classes='data-table', border=0, escape=True)}"
+
+
+def build_results_report_html(df: pd.DataFrame, contract: float | None) -> bytes:
+    kpis = energy_kpis(df)
+    grid_eval = df.attrs.get("grid_evaluation") or {}
+    grid_metrics = compute_grid_stress_metrics(df, contract)
+    stoplight = str(grid_eval.get("stoplight", "onbekend")).capitalize()
+    generated_at = pd.Timestamp.now(tz=TZ).strftime("%Y-%m-%d %H:%M")
+
+    sections = [
+        _report_table(
+            "Beslissingssamenvatting",
+            [
+                ("Stoplicht", stoplight, ""),
+                ("Piek netimport", kpis.get("Piek netimport na batterij [kW]"), "kW"),
+                ("Piek boven contract", kpis.get("Piek boven contractvermogen [kW]"), "kW"),
+                ("Jaarlijkse netimport", kpis.get("Jaarlijkse netimport [kWh]"), "kWh"),
+                ("Ongedekte warmte", kpis.get("Jaarlijkse ongedekte warmte [kWhth]"), "kWhth"),
+                ("Gas-/brandstofinput", float(df.attrs.get("kpis", {}).get("annual_fuel_input_kWh", 0.0)), "kWh"),
+            ],
+        ),
+        _report_table(
+            "Netcapaciteit",
+            [
+                ("Contractvermogen", contract, "kW"),
+                ("Uren > 90% contract", grid_metrics.get("hours_above_90"), "h"),
+                ("Uren > 95% contract", grid_metrics.get("hours_above_95"), "h"),
+                ("Uren > 100% contract", grid_metrics.get("hours_above_100"), "h"),
+                ("Gemiddelde netruimte", grid_metrics.get("avg_headroom_kW"), "kW"),
+                ("Benuttingsgraad", grid_metrics.get("load_factor"), ""),
+            ],
+        ),
+        _report_dataframe("Maandverbruik", monthly_energy_by_category(df, ELECTRIC_CONSUMPTION_CATEGORIES)),
+        _report_dataframe("Herkomst elektriciteit per maand", monthly_energy_by_category(df, ELECTRICITY_SUPPLY_CATEGORIES)),
+        _report_dataframe("Warmtebalans per maand", monthly_energy_by_category(df, HEAT_SUPPLY_CATEGORIES)),
+        _report_dataframe("Opslagstromen per maand", monthly_energy_by_category(df, STORAGE_CATEGORIES)),
+    ]
+
+    html = f"""<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <title>Resultatenrapport energieplanner</title>
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 36px; color: #1f2933; }}
+    h1 {{ margin-bottom: 4px; }}
+    h2 {{ margin-top: 28px; border-bottom: 1px solid #d8dee8; padding-bottom: 6px; }}
+    h3 {{ margin-top: 22px; }}
+    .meta {{ color: #5b6778; margin-bottom: 28px; }}
+    table {{ border-collapse: collapse; width: 100%; margin: 8px 0 18px; font-size: 13px; }}
+    th, td {{ border: 1px solid #d8dee8; padding: 7px 9px; text-align: right; }}
+    th:first-child, td:first-child {{ text-align: left; }}
+    th {{ background: #f4f7fb; }}
+    .note {{ background: #f6f8fb; padding: 12px 14px; border-left: 4px solid #0b5fff; }}
+  </style>
+</head>
+<body>
+  <h1>Resultatenrapport energieplanner</h1>
+  <p class="meta">Gegenereerd op {escape(generated_at)} · Projectbestand en ruwe data blijven apart downloadbaar in de app.</p>
+  <p class="note">Dit rapport vat de resultatenpagina samen: netcapaciteit, verbruik, herkomst van elektriciteit, warmte/gasloosheid en opslag. Gebruik de interactieve app voor detailanalyse per tijdstap.</p>
+  {''.join(sections)}
+</body>
+</html>"""
+    return html.encode("utf-8")
+
+
 def render_model_quality_section(df: pd.DataFrame) -> None:
     checks = df.attrs.get("sanity_checks") or {}
     if not checks:
@@ -2202,9 +2301,9 @@ def render_results_dashboard(df: pd.DataFrame, contract: float | None, cfg=None)
     )
     c_gen1, c_gen2 = st.columns(2)
     with c_gen1:
-        render_donut_chart("Jaarmix opwek", annual_energy_by_category(df, [("Zonnepanelen", "P_pv_kW"), ("WKK elektrisch", "P_wkk_el_kW")]))
+        render_donut_chart("Herkomst elektriciteit", annual_energy_by_category(df, ELECTRICITY_SUPPLY_CATEGORIES))
     with c_gen2:
-        render_monthly_stacked_bar_chart("Maandopwek", monthly_energy_by_category(df, [("Zonnepanelen", "P_pv_kW"), ("WKK elektrisch", "P_wkk_el_kW")]))
+        render_monthly_stacked_bar_chart("Herkomst elektriciteit per maand", monthly_energy_by_category(df, ELECTRICITY_SUPPLY_CATEGORIES))
     render_load_match_balance_charts(df)
 
     st.markdown("### 7. Warmte En Gasloosheid")
@@ -2252,7 +2351,7 @@ def render_results_dashboard(df: pd.DataFrame, contract: float | None, cfg=None)
         measurement_metadata=st.session_state.get("last_measurement_metadata"),
         validation_result=st.session_state.get("last_validation_result"),
     )
-    c_export1, c_export2 = st.columns(2)
+    c_export1, c_export2, c_export3 = st.columns(3)
     with c_export1:
         st.download_button(
             "Download resultaten als CSV",
@@ -2268,6 +2367,14 @@ def render_results_dashboard(df: pd.DataFrame, contract: float | None, cfg=None)
             file_name="energy_system_export_bundle.zip",
             mime="application/zip",
             help="Wat: downloadt resultaten en validatie-informatie samen. In het model verandert dit niets. Effect: handig voor rapportage of overdracht.",
+        )
+    with c_export3:
+        st.download_button(
+            "Download resultatenrapport",
+            build_results_report_html(df, contract),
+            file_name="resultatenrapport_energieplanner.html",
+            mime="text/html",
+            help="Wat: downloadt een compacte rapportversie van de resultatenpagina. In het model verandert dit niets. Effect: geschikt voor delen of printen naar PDF.",
         )
 
 
