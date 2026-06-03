@@ -39,6 +39,17 @@ TZ = "Europe/Amsterdam"
 DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 DAY_TO_INT = {d: i for i, d in enumerate(DAY_LABELS)}
 PROJECT_SCHEMA_VERSION = 1
+PV_DIRECTION_TO_AZIMUTH = {
+    "N": 0.0,
+    "NE": 45.0,
+    "E": 90.0,
+    "SE": 135.0,
+    "S": 180.0,
+    "SW": 225.0,
+    "W": 270.0,
+    "NW": 315.0,
+}
+PV_AZIMUTH_OPTIONS = list(PV_DIRECTION_TO_AZIMUTH.values())
 
 DAY_DISPLAY = {
     "Mon": "Maandag",
@@ -96,6 +107,16 @@ CHOICE_LABELS = {
     "sum_to_hourly": "Som naar uurwaarde",
     "mean": "Gemiddelde",
     "sum": "Som",
+    "direct": "Direct laden",
+    "smart": "Slim laden",
+    "0.0": "Noord",
+    "45.0": "Noordoost",
+    "90.0": "Oost",
+    "135.0": "Zuidoost",
+    "180.0": "Zuid",
+    "225.0": "Zuidwest",
+    "270.0": "West",
+    "315.0": "Noordwest",
 }
 
 LABELS = {
@@ -147,6 +168,13 @@ LABELS = {
     "mob_n_cars": "Aantal elektrische auto's",
     "mob_p_charger_max": "Laadvermogen per auto [kW]",
     "mob_duty_cycle": "Gelijktijdige laadfractie",
+    "mob_battery_capacity": "Gemiddelde batterijcapaciteit [kWh]",
+    "mob_arrival_soc": "Aankomstlading [%]",
+    "mob_target_soc": "Gewenste vertreklading [%]",
+    "mob_arrival_hour": "Aankomsttijd",
+    "mob_departure_hour": "Vertrektijd",
+    "mob_cars_present": "Aanwezige auto's [%]",
+    "mob_charge_mode": "Laadmodus",
     "mob_site_cap": "Maximaal laadvermogen locatie [kW]",
     "ov_enable": "Standaard overig verbruik aanpassen",
     "ov_occ": "Overig vermogen tijdens gebruik [W/m²]",
@@ -154,7 +182,7 @@ LABELS = {
     "pv_enabled": "Zonnepanelen meenemen",
     "pv_cap": "Vermogen zonnepanelen [kWp]",
     "pv_tilt": "Hellingshoek zonnepanelen [°]",
-    "pv_azimuth": "Richting zonnepanelen [°]",
+    "pv_azimuth": "Richting zonnepanelen",
     "pv_pr": "Prestatieverhouding zonnepanelen",
     "pv_inv_eff": "Omvormerrendement",
     "pv_temp_coeff": "Temperatuurcorrectie zonnepanelen [/°C]",
@@ -250,17 +278,24 @@ HELP_TEXTS = {
     "subload_p_unocc": "Wat: vermogen van deze deellast buiten gebruik. In het model telt dit mee in het rustprofiel. Effect: hoger verhoogt basisverbruik.",
     "proc_p_process": "Wat: vermogen van dit proces tijdens bedrijf. In het model wordt dit toegevoegd aan procesverbruik. Effect: hoger verhoogt elektriciteitsvraag tijdens procesuren.",
     "proc_p_idle": "Wat: rustvermogen van dit proces buiten bedrijf. In het model blijft dit aanwezig buiten actieve uren. Effect: hoger verhoogt basislast.",
-    "mob_n_cars": "Wat: aantal elektrische auto's dat kan laden. In het model schaalt dit het mobiliteitsprofiel. Effect: meer auto's verhogen laadverbruik en mogelijk pieken.",
-    "mob_p_charger_max": "Wat: maximaal laadvermogen per auto. In het model begrenst dit laadsnelheid per auto. Effect: hoger kan hogere pieken veroorzaken.",
+    "mob_n_cars": "Wat: aantal elektrische auto's dat kan laden. In het model schaalt dit de totale laadenergie en het maximale laadvermogen. Effect: meer auto's verhogen laadverbruik en mogelijk pieken.",
+    "mob_p_charger_max": "Wat: maximaal laadvermogen per auto. In het model begrenst dit laadsnelheid per aanwezige auto. Effect: hoger kan sneller laden, maar ook hogere pieken veroorzaken.",
     "mob_duty_cycle": "Wat: aandeel auto's dat tegelijk laadt. In het model begrenst dit gelijktijdig laadvermogen. Effect: hoger verhoogt de piekbelasting.",
-    "mob_site_cap": "Wat: maximum voor alle laadpunten samen. In het model kapt dit mobiliteitsvermogen af. Effect: lager beperkt pieken, maar spreidt of beperkt laden.",
+    "mob_battery_capacity": "Wat: gemiddelde batterijgrootte van de auto's. In het model bepaalt dit hoeveel energie nodig is om van aankomstlading naar vertreklading te gaan. Effect: groter betekent meer laadenergie.",
+    "mob_arrival_soc": "Wat: gemiddelde lading bij aankomst. In het model is dit het startpunt voor de laadbehoefte. Effect: hoger betekent minder benodigde laadenergie.",
+    "mob_target_soc": "Wat: gewenste lading bij vertrek. In het model is dit het doelniveau voor laden. Effect: hoger betekent meer benodigde laadenergie.",
+    "mob_arrival_hour": "Wat: uur waarop auto's gemiddeld aankomen. In het model start dan het laadvenster. Effect: eerder aankomen geeft meer tijd om slim te laden.",
+    "mob_departure_hour": "Wat: uur waarop auto's gemiddeld vertrekken. In het model eindigt dan het laadvenster. Effect: later vertrekken geeft meer tijd om binnen contractruimte te laden.",
+    "mob_cars_present": "Wat: aandeel auto's dat gemiddeld aanwezig is. In het model schaalt dit de laadenergie en laadpiek. Effect: lager betekent minder totale laadbehoefte.",
+    "mob_charge_mode": "Wat: bepaalt hoe auto's laden.\n\nOpties:\n- Direct laden: start bij aankomst en laadt zo snel mogelijk tot de gewenste vertreklading is gehaald.\n- Slim laden: laadt alleen wanneer de gebouwbasislast plus laden onder het contractvermogen blijft.\n\nEffect: slim laden verlaagt contractoverschrijding, maar kan laadtekort geven als er te weinig netruimte is.",
+    "mob_site_cap": "Wat: maximum voor alle laadpunten samen. In het model kapt dit mobiliteitsvermogen af. Effect: lager beperkt pieken, maar kan laden spreiden of onvolledig maken.",
     "ov_enable": "Wat: handmatige aanpassing van overig verbruik. In het model vervangt dit de standaard restlast. Effect: hogere waarden verhogen het totale elektriciteitsverbruik.",
     "ov_occ": "Wat: overig vermogen per m² tijdens gebruik. In het model telt dit mee als restverbruik. Effect: hoger verhoogt actieve basislast.",
     "ov_unocc": "Wat: overig vermogen per m² buiten gebruik. In het model telt dit mee als rustverbruik. Effect: hoger verhoogt nacht- en weekendverbruik.",
     "pv_enabled": "Wat: keuze om zonnepanelen mee te nemen. In het model wordt PV-opwek dan berekend uit weerdata en paneelinstellingen. Effect: aan verlaagt netimport en kan teruglevering geven.",
     "pv_cap": "Wat: totaal piekvermogen van de zonnepanelen. In het model schaalt dit de PV-opbrengst. Effect: hoger geeft meer zonnestroom en mogelijk meer teruglevering.",
     "pv_tilt": "Wat: hoek van de panelen ten opzichte van horizontaal. In het model beïnvloedt dit instraling op het paneel. Effect: andere hoek verschuift opbrengst per seizoen.",
-    "pv_azimuth": "Wat: richting van de panelen in graden. In het model bepaalt dit wanneer de panelen zon ontvangen. Effect: zuid geeft vaak hoge jaaropbrengst, oost/west spreidt opbrengst over de dag.",
+    "pv_azimuth": "Wat: windrichting van de zonnepanelen. In het model wordt deze richting vertaald naar graden en beïnvloedt dit de PV-opbrengst. Effect: zuid geeft vaak hoge jaaropbrengst; oost geeft meer ochtendopbrengst en west meer middagopbrengst.",
     "pv_pr": "Wat: praktijkfactor voor verliezen zoals vuil, bekabeling en mismatch. In het model vermenigvuldigt dit de PV-opbrengst. Effect: lager verlaagt de berekende opbrengst.",
     "pv_inv_eff": "Wat: rendement van de omvormer. In het model wordt DC-opwek hiermee naar bruikbare AC-stroom vertaald. Effect: hoger geeft iets meer bruikbare stroom.",
     "pv_temp_coeff": "Wat: rendementsverlies bij warme panelen. In het model corrigeert dit PV-opbrengst op basis van temperatuur. Effect: sterker negatief verlaagt opbrengst op warme dagen.",
@@ -270,11 +305,11 @@ HELP_TEXTS = {
     "wkk_min_frac": "Wat: minimale belasting waarop de WKK mag draaien. In het model voorkomt dit te laag moduleren. Effect: hoger maakt de WKK minder flexibel.",
     "wkk_el_eff": "Wat: deel van brandstof dat elektriciteit wordt. In het model bepaalt dit brandstofgebruik per kWh stroom. Effect: hoger verlaagt brandstofgebruik.",
     "wkk_th_eff": "Wat: deel van brandstof dat nuttige warmte wordt. In het model bepaalt dit warmtelevering uit WKK. Effect: hoger verlaagt resterende warmtevraag.",
-    "wkk_dispatch_mode": "Wat: regelstrategie voor de WKK. In het model bepaalt dit wanneer de WKK draait. Effect: andere sturing verschuift netimport, warmte en brandstofgebruik.",
+    "wkk_dispatch_mode": "Wat: regelstrategie voor de WKK. In het model bepaalt dit wanneer de WKK draait.\n\nOpties:\n- Sturen op elektriciteitsvraag: gebruiken als de WKK vooral netimport moet verlagen.\n- Sturen op warmtevraag: gebruiken als warmteproductie leidend is.\n- Hybride piekverlaging: gebruiken als netpieken belangrijk zijn.\n- Warmtegestuurd met elektrisch maximum: gebruiken als warmte nodig is, maar elektrische pieken begrensd moeten blijven.\n- Altijd draaien: gebruiken voor een vaste must-run aanname.\n- Uit: WKK levert niets.\n\nEffect: de keuze verschuift netimport, warmtelevering en brandstofgebruik.",
     "grid_cap_kW": "Wat: afgesproken maximaal netvermogen. In het model wordt dit gebruikt om overschrijdingen en netstress te beoordelen. Effect: lager maakt knelpunten sneller zichtbaar.",
     "hp_enabled": "Wat: keuze om de warmtepomp mee te nemen. In het model levert de warmtepomp warmte met elektriciteit. Effect: aan verlaagt gasvraag maar verhoogt elektriciteitsvraag.",
     "hp_capacity": "Wat: maximale warmteproductie van de warmtepomp. In het model begrenst dit hoeveel warmtevraag de warmtepomp dekt. Effect: hoger dekt meer warmte maar kan meer netvermogen vragen.",
-    "hp_cop_mode": "Wat: manier waarop warmtepomprendement wordt bepaald. In het model kiest dit vaste, seizoen- of weersafhankelijke COP. Effect: weersafhankelijk geeft realistischer variatie.",
+    "hp_cop_mode": "Wat: manier waarop warmtepomprendement wordt bepaald.\n\nOpties:\n- Vaste COP: één rendement voor het hele jaar; handig voor snelle scenario's.\n- Seizoensafhankelijke COP: rendement verschilt per seizoen; geschikt als detaildata ontbreekt.\n- Weersafhankelijke COP: rendement reageert op buitentemperatuur; meest realistisch voor jaarprofielen.\n\nEffect: lagere COP verhoogt elektriciteitsvraag van de warmtepomp.",
     "hp_cop_nominal": "Wat: standaardrendement van de warmtepomp. In het model zet dit warmte om naar elektriciteitsverbruik. Effect: hoger verlaagt stroomvraag voor dezelfde warmte.",
     "hp_min_frac": "Wat: laagste deelvermogen waarop de warmtepomp kan draaien. In het model beperkt dit modulatie. Effect: hoger maakt de warmtepomp minder flexibel bij lage vraag.",
     "hp_site_cap": "Wat: maximaal elektrisch vermogen voor de warmtepomp. In het model begrenst dit stroomgebruik van de warmtepomp. Effect: lager verlaagt pieken maar kan ongedekte warmte geven.",
@@ -282,7 +317,7 @@ HELP_TEXTS = {
     "boiler_capacity": "Wat: maximale warmteproductie van de ketel. In het model begrenst dit ketelwarmte. Effect: hoger dekt meer piekvraag.",
     "boiler_eff": "Wat: rendement van brandstof naar warmte. In het model bepaalt dit brandstofgebruik. Effect: hoger verlaagt brandstofgebruik voor dezelfde warmte.",
     "boiler_min_frac": "Wat: laagste deelvermogen waarop de ketel kan draaien. In het model beperkt dit modulatie. Effect: hoger maakt de ketel minder flexibel.",
-    "boiler_fuel_type": "Wat: brandstofsoort van de ketel. In het model labelt dit de brandstofstroom. Effect: belangrijk voor interpretatie en toekomstige emissieberekening.",
+    "boiler_fuel_type": "Wat: brandstofsoort van de ketel. In het model labelt dit de brandstofstroom.\n\nOpties:\n- Aardgas: gebruik voor de huidige fossiele referentie.\n- Biogas: gebruik voor een hernieuwbaar gas-scenario.\n- Waterstof: gebruik voor een toekomstscenario.\n- Algemeen: gebruik als de brandstof nog onbekend is.\n\nEffect: nu vooral interpretatie; later bruikbaar voor emissies en kosten.",
     "dh_enabled": "Wat: keuze om warmtenet mee te nemen. In het model kan het warmtenet warmtevraag leveren. Effect: aan kan ketel of warmtepomp aanvullen.",
     "dh_capacity": "Wat: maximale warmte uit het warmtenet. In het model begrenst dit warmtenetlevering. Effect: hoger dekt meer warmtevraag.",
     "dh_tariff": "Wat: tarief of kostenplaceholder voor warmtenet. In het model wordt dit nog beperkt gebruikt. Effect: aanpassen heeft nu vooral documenterende waarde.",
@@ -294,7 +329,7 @@ HELP_TEXTS = {
     "bat_p_discharge": "Wat: maximale ontlaadsnelheid van de batterij. In het model begrenst dit hoeveel netvraag kan worden verlaagd. Effect: hoger verlaagt pieken sterker.",
     "bat_soc_max": "Wat: maximale toegestane vulling. In het model voorkomt dit verder laden. Effect: lager verlaagt opslagruimte.",
     "bat_eff": "Wat: totaalrendement van laden en ontladen. In het model gaat bij opslag een deel verloren. Effect: lager betekent meer energieverlies.",
-    "bat_charge_strategy": "Wat: manier waarop de batterij mag laden. In het model bepaalt dit of laden alleen met overschot of ook met netruimte gebeurt. Effect: kan pieken en eigenverbruik veranderen.",
+    "bat_charge_strategy": "Wat: manier waarop de batterij mag laden.\n\nOpties:\n- Alleen lokaal overschot: batterij laadt alleen met PV/WKK-overschot; goed voor hoger eigenverbruik.\n- Laden tot contractruimte: batterij mag laden zolang netimport onder contractvermogen blijft; goed om beschikbare netruimte te benutten.\n\nEffect: dit verandert batterijvulling, netimport en teruglevering.",
     "th_enabled": "Wat: keuze om warmteopslag mee te nemen. In het model kan warmte tijdelijk worden opgeslagen. Effect: aan kan warmteproductie verschuiven.",
     "th_capacity": "Wat: hoeveelheid warmte die kan worden opgeslagen. In het model bepaalt dit opslagduur voor warmte. Effect: groter kan warmtevraag langer overbruggen.",
     "th_soc_init": "Wat: startvulling van de warmteopslag. In het model begint de opslag hiermee. Effect: beïnvloedt vooral het begin van de simulatie.",
@@ -306,11 +341,11 @@ HELP_TEXTS = {
     "th_eff_charge": "Wat: rendement bij warmte opslaan. In het model gaat bij laden warmte verloren. Effect: lager geeft meer verlies.",
     "th_eff_discharge": "Wat: rendement bij warmte gebruiken. In het model gaat bij ontladen warmte verloren. Effect: lager geeft minder bruikbare warmte.",
     "measurement_enabled": "Wat: keuze om meetdata te gebruiken. In het model wordt meetdata naast simulatie gezet. Effect: aan maakt validatie van modelresultaten mogelijk.",
-    "measurement_power_unit_mode": "Wat: geeft aan of meetdata vermogen of energie per interval is. In het model bepaalt dit de omzetting naar kW. Effect: verkeerde keuze vertekent de vergelijking.",
+    "measurement_power_unit_mode": "Wat: geeft aan of meetdata vermogen of energie per interval is.\n\nOpties:\n- Vermogen in kW: gebruik als elke waarde een gemiddeld/actueel vermogen is.\n- Energie per meetinterval: gebruik als elke waarde kWh per kwartier/uur is.\n\nEffect: verkeerde keuze maakt de vergelijking te hoog of te laag.",
     "measurement_expected_resolution": "Wat: tijdstap van de meetdata. In het model wordt data hierop gecontroleerd en omgerekend. Effect: verkeerde resolutie kan validatie vertekenen.",
-    "measurement_gap_fill_method": "Wat: methode voor ontbrekende meetwaarden. In het model bepaalt dit hoe gaten worden behandeld. Effect: invullen kan vergelijking stabieler maken maar voegt aannames toe.",
-    "measurement_comparison_mode": "Wat: grootheid waarop simulatie en meting worden vergeleken. In het model kiest dit de vergelijkingskolommen. Effect: verkeerde keuze vergelijkt de verkeerde energiestroom.",
-    "measurement_resample_policy": "Wat: manier waarop meetdata naar een andere tijdstap gaat. In het model bepaalt dit middelen of optellen. Effect: verkeerde keuze kan waarden te hoog of te laag maken.",
+    "measurement_gap_fill_method": "Wat: methode voor ontbrekende meetwaarden.\n\nOpties:\n- Niet invullen: behoudt gaten; veilig bij onzekerheid.\n- Vorige waarde doortrekken: handig bij korte meetgaten.\n- Volgende waarde terugvullen: alternatief bij korte gaten.\n- Interpoleren op tijd: geschikt voor geleidelijke signalen.\n- Nul invullen: alleen gebruiken als ontbrekend echt nul betekent.\n\nEffect: invullen kan vergelijking stabieler maken, maar voegt aannames toe.",
+    "measurement_comparison_mode": "Wat: grootheid waarop simulatie en meting worden vergeleken.\n\nOpties:\n- Netimport: vergelijk afname van het net.\n- Teruglevering: vergelijk levering aan het net.\n- Elektrisch verbruik: vergelijk gebouwvraag.\n- Gas: vergelijk brandstofgebruik.\n- Warmte: vergelijk warmtevraag of levering.\n\nEffect: verkeerde keuze vergelijkt de verkeerde energiestroom.",
+    "measurement_resample_policy": "Wat: manier waarop meetdata naar een andere tijdstap gaat.\n\nOpties:\n- Gemiddelde naar uurwaarde: geschikt voor vermogen in kW.\n- Som naar uurwaarde: geschikt voor energie per interval.\n- Gemiddelde: behoudt gemiddelde bij andere resolutie.\n- Som: telt waarden op.\n- Niet invullen: geen omrekening.\n\nEffect: verkeerde keuze kan waarden te hoog of te laag maken.",
     "measurement_upload": "Wat: bestand met werkelijke meetdata. In het model wordt dit ingelezen voor validatie. Effect: goede meetdata maakt modelcontrole betrouwbaarder.",
 }
 
@@ -440,6 +475,13 @@ def app_state_defaults() -> dict:
         "mob_n_cars": 0,
         "mob_p_charger_max": 11.0,
         "mob_duty_cycle": 0.30,
+        "mob_battery_capacity": 60.0,
+        "mob_arrival_soc": 50.0,
+        "mob_target_soc": 80.0,
+        "mob_arrival_hour": 8,
+        "mob_departure_hour": 17,
+        "mob_cars_present": 100.0,
+        "mob_charge_mode": "smart",
         "mob_site_cap": 0.0,
         "ov_enable": False,
         "ov_occ": 2.0,
@@ -523,11 +565,65 @@ def clear_dynamic_widget_state() -> None:
             st.session_state.pop(key, None)
 
 
+def closest_pv_azimuth(value) -> float:
+    try:
+        raw = float(value)
+    except (TypeError, ValueError):
+        return 180.0
+    raw = raw % 360.0
+    return min(PV_AZIMUTH_OPTIONS, key=lambda x: abs(((raw - x + 180.0) % 360.0) - 180.0))
+
+
+def normalize_input_constraints() -> list[str]:
+    corrections: list[str] = []
+
+    pv_before = st.session_state.get("pv_azimuth", 180.0)
+    pv_after = closest_pv_azimuth(pv_before)
+    if float(pv_after) != float(pv_before):
+        st.session_state["pv_azimuth"] = pv_after
+        corrections.append("Richting zonnepanelen is gekoppeld aan de dichtstbijzijnde windrichting.")
+
+    heat_occ = float(st.session_state.get("bld_t_heat_occ", 20.0))
+    heat_unocc = float(st.session_state.get("bld_t_heat_unocc", 16.0))
+    cool_occ = float(st.session_state.get("bld_t_cool_occ", 24.0))
+    cool_unocc = float(st.session_state.get("bld_t_cool_unocc", 27.0))
+
+    if heat_unocc > heat_occ:
+        st.session_state["bld_t_heat_unocc"] = heat_occ
+        heat_unocc = heat_occ
+        corrections.append("Verwarmingstemperatuur buiten gebruik is verlaagd tot maximaal de gebruikstemperatuur.")
+
+    if cool_occ <= heat_occ:
+        cool_occ = heat_occ + 0.5
+        st.session_state["bld_t_cool_occ"] = cool_occ
+        corrections.append("Koeltemperatuur tijdens gebruik is verhoogd zodat die boven de verwarmingstemperatuur ligt.")
+
+    if cool_unocc < cool_occ:
+        cool_unocc = cool_occ
+        st.session_state["bld_t_cool_unocc"] = cool_unocc
+        corrections.append("Koeltemperatuur buiten gebruik is verhoogd tot minimaal de gebruikskoeltemperatuur.")
+
+    if cool_unocc <= heat_unocc:
+        st.session_state["bld_t_cool_unocc"] = heat_unocc + 0.5
+        corrections.append("Koeltemperatuur buiten gebruik is verhoogd zodat die boven de verwarmingstemperatuur buiten gebruik ligt.")
+
+    if int(st.session_state.get("mob_departure_hour", 17)) <= int(st.session_state.get("mob_arrival_hour", 8)):
+        st.session_state["mob_departure_hour"] = min(int(st.session_state.get("mob_arrival_hour", 8)) + 1, 24)
+        corrections.append("Vertrektijd is aangepast zodat die na aankomsttijd ligt.")
+
+    if float(st.session_state.get("mob_target_soc", 80.0)) < float(st.session_state.get("mob_arrival_soc", 50.0)):
+        st.session_state["mob_target_soc"] = float(st.session_state.get("mob_arrival_soc", 50.0))
+        corrections.append("Gewenste vertreklading is verhoogd tot minimaal de aankomstlading.")
+
+    return corrections
+
+
 def reset_input_state() -> None:
     defaults = app_state_defaults()
     clear_dynamic_widget_state()
     for key, value in defaults.items():
         st.session_state[key] = deepcopy(value)
+    st.session_state["_project_corrections"] = normalize_input_constraints()
 
 
 def apply_project_payload(payload: dict) -> tuple[int, list[str]]:
@@ -547,7 +643,11 @@ def apply_project_payload(payload: dict) -> tuple[int, list[str]]:
         if key in allowed and not key.startswith("last_"):
             st.session_state[key] = deepcopy(value)
     clear_result_state()
+    st.session_state["_project_corrections"] = normalize_input_constraints()
     return len(raw_state) - len(ignored), ignored
+
+
+normalize_input_constraints()
 
 
 def render_project_controls() -> None:
@@ -576,12 +676,16 @@ def render_project_controls() -> None:
                     st.success(f"Projectbestand geladen: {loaded_count} instellingen toegepast.")
                     if ignored:
                         st.caption(f"Genegeerde velden: {', '.join(ignored)}")
+                    for correction in st.session_state.pop("_project_corrections", []):
+                        st.warning(correction)
                 except Exception as exc:
                     st.error(f"Projectbestand kon niet worden geladen: {exc}")
         with c3:
             if st.button("Reset invoer", key="reset_project_inputs", help="Zet alle invoerinstellingen terug naar de standaardwaarden en wist oude resultaten."):
                 reset_input_state()
                 st.success("Invoerinstellingen teruggezet naar standaardwaarden.")
+                for correction in st.session_state.pop("_project_corrections", []):
+                    st.warning(correction)
 
 
 render_project_controls()
@@ -772,15 +876,96 @@ def first_week(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[(df.index >= start) & (df.index < start + pd.Timedelta(days=7))]
 
 
-def preview_week_chart(df: pd.DataFrame, cols: list[str], title: str):
+COLUMN_LABELS = {
+    "P_heat_kW": "Verwarming",
+    "P_cool_kW": "Koeling",
+    "P_elektro_kW": "Elektrisch verbruik",
+    "P_process_kW": "Processen",
+    "P_mobility_kW": "Mobiliteit laden",
+    "P_overig_kW": "Overig verbruik",
+    "P_base_without_mobility_kW": "Basislast zonder mobiliteit",
+    "P_load_total_kW": "Totaal verbruik",
+    "P_pv_kW": "Zonnepanelen",
+    "P_wkk_el_kW": "WKK elektrisch",
+    "P_wkk_th_kW": "WKK warmte",
+    "Q_wkk_used_kWth": "Benutte WKK-warmte",
+    "P_generation_total_kW": "Totale opwek",
+    "P_battery_charge_kW": "Batterij laden",
+    "P_battery_discharge_kW": "Batterij ontladen",
+    "P_grid_import_kW": "Netimport",
+    "P_grid_export_kW": "Teruglevering",
+    "P_electric_load_kW": "Elektrisch verbruik gemeten",
+    "F_gas_kW": "Gasvermogen",
+    "Q_heat_kWth": "Warmte gemeten",
+    "P_grid_contract_excess_kW": "Boven contract",
+    "battery_soc_pct": "Vullingsgraad batterij",
+    "Q_heat_demand_kWth": "Warmtevraag",
+    "Q_hp_th_kWth": "Warmtepompwarmte",
+    "Q_wkk_used_kWth": "WKK-warmte",
+    "Q_boiler_th_kWth": "Ketelwarmte",
+    "Q_dh_th_kWth": "Warmtenet",
+    "Q_thermal_storage_discharge_kWth": "Warmteopslag ontladen",
+    "Q_heat_unserved_final_kWth": "Ongedekte warmte",
+}
+
+PLOT_EXPLANATIONS = {
+    "building": "Deze grafiek toont de gebouwgebonden verwarmings- en koelvraag in de eerste simulatie-week. De y-as is vermogen in kW: hogere pieken betekenen dat installaties meer capaciteit moeten leveren.",
+    "electric": "Deze grafiek toont het elektrische basisverbruik in de eerste week. De y-as is vermogen in kW. Een hoge basislast verhoogt netimport en beperkt ruimte voor slim laden.",
+    "process": "Deze grafiek toont procesverbruik in de eerste week. Pieken geven momenten waarop processen veel elektrisch vermogen vragen.",
+    "mobility": "Deze grafiek toont het laadvermogen voor elektrische auto's. Bij slim laden blijft laden binnen de beschikbare contractruimte; een tekort betekent dat de gewenste vertreklading niet volledig gehaald wordt.",
+    "other": "Deze grafiek toont overige elektrische lasten. Dit is restverbruik dat meetelt in de totale basislast.",
+    "load_total": "Deze grafiek combineert totaalverbruik, verwarming en koeling. Gebruik dit om te zien welke componenten pieken veroorzaken.",
+    "pv": "Deze grafiek toont de PV-opbrengst in kW. Richting, helling en vermogen bepalen wanneer en hoeveel zonnestroom beschikbaar is.",
+    "wkk": "Deze grafiek toont elektrische en thermische WKK-productie. De regeling bepaalt wanneer de WKK draait en of die vooral stroom of warmte levert.",
+    "generation": "Deze grafiek toont lokale opwek, opslagstromen en netimport. Zo zie je of opwek samenvalt met de energievraag.",
+    "grid_week": "Deze grafiek toont de zwaarste netweek. De y-as is vermogen in kW; de contractlijn laat zien wanneer netcapaciteit krap wordt.",
+    "duration": "Deze duurcurve sorteert netimport van hoog naar laag. Links staan de hoogste pieken; hoe breder de curve boven contract ligt, hoe structureler het knelpunt.",
+    "heat_balance": "Deze grafiek toont hoe warmtevraag wordt ingevuld door warmtepomp, WKK, ketel, warmtenet en opslag. Ongedekte warmte wijst op onvoldoende warmtecapaciteit.",
+    "battery_soc": "Deze grafiek toont de vullingsgraad van de batterij. Een vaak lege batterij kan pieken niet verlagen; een vaak volle batterij kan overschot niet opnemen.",
+    "validation": "Deze grafiek vergelijkt simulatie met meetdata. Grote verschillen wijzen op ontbrekende aannames, verkeerde meeteenheid of een modelinstelling die moet worden bijgesteld.",
+}
+
+
+def render_plot_explanation(key: str, context: str | None = None) -> None:
+    text = PLOT_EXPLANATIONS.get(key)
+    if not text:
+        return
+    with st.expander("Wat zie ik?", expanded=False):
+        st.write(text)
+        if context:
+            st.caption(context)
+
+
+def render_timeseries_plot(df: pd.DataFrame, cols: list[str], title: str, *, y_title: str = "Vermogen [kW]", explanation_key: str | None = None, context: str | None = None) -> None:
     available = [c for c in cols if c in df.columns]
-    if available:
-        st.markdown(f"**{title}**")
-        st.line_chart(first_week(df)[available])
+    if not available:
+        return
+    plot_df = first_week(df)[available].reset_index().rename(columns={"index": "timestamp"})
+    time_col = plot_df.columns[0]
+    long_df = plot_df.melt(id_vars=time_col, var_name="series", value_name="value")
+    long_df["series_label"] = long_df["series"].map(lambda c: COLUMN_LABELS.get(c, c))
+    st.markdown(f"**{title}**")
+    chart = (
+        alt.Chart(long_df)
+        .mark_line(strokeWidth=2)
+        .encode(
+            x=alt.X(f"{time_col}:T", title="Tijd"),
+            y=alt.Y("value:Q", title=y_title),
+            color=alt.Color("series_label:N", title="Reeks"),
+            tooltip=[f"{time_col}:T", "series_label:N", alt.Tooltip("value:Q", format=".2f", title=y_title)],
+        )
+        .interactive()
+    )
+    st.altair_chart(chart, width='stretch')
+    render_plot_explanation(explanation_key or "load_total", context)
+
+
+def preview_week_chart(df: pd.DataFrame, cols: list[str], title: str, explanation_key: str = "load_total", context: str | None = None):
+    render_timeseries_plot(df, cols, title, explanation_key=explanation_key, context=context)
 
 def plot_peak_grid_import_week_stacked(
     df: pd.DataFrame,
-    title: str = "Peak grid import week",
+    title: str = "Zwaarste netweek",
     contract_kW: float | None = None,
 ):
     if df is None or df.empty or "P_grid_import_kW" not in df.columns:
@@ -808,6 +993,7 @@ def plot_peak_grid_import_week_stacked(
         var_name="asset",
         value_name="power_kW",
     )
+    supply_long["asset_label"] = supply_long["asset"].map(lambda c: COLUMN_LABELS.get(c, c))
 
     stacked_area = (
         alt.Chart(supply_long)
@@ -815,10 +1001,10 @@ def plot_peak_grid_import_week_stacked(
         .encode(
             x=alt.X("timestamp:T", title="Tijd"),
             y=alt.Y("power_kW:Q", stack=True, title="Vermogen [kW]"),
-            color=alt.Color("asset:N", title="Assets"),
+            color=alt.Color("asset_label:N", title="Energiedrager"),
             tooltip=[
                 "timestamp:T",
-                "asset:N",
+                "asset_label:N",
                 alt.Tooltip("power_kW:Q", format=".2f"),
             ],
         )
@@ -850,7 +1036,8 @@ def plot_peak_grid_import_week_stacked(
         layers.append(contract_line)
 
     chart = alt.layer(*layers).interactive()
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width='stretch')
+    render_plot_explanation("grid_week", f"Contractvermogen: {'niet ingesteld' if contract_kW is None else f'{float(contract_kW):.1f} kW'}.")
 
     if "battery_soc_pct" in week_df.columns:
         st.markdown("**Vullingsgraad batterij [%]**")
@@ -864,7 +1051,8 @@ def plot_peak_grid_import_week_stacked(
             )
             .interactive()
         )
-        st.altair_chart(soc_chart, use_container_width=True)
+        st.altair_chart(soc_chart, width='stretch')
+        render_plot_explanation("battery_soc")
 
 def energy_kpis(df: pd.DataFrame) -> dict:
     zero = pd.Series(0.0, index=df.index)
@@ -1007,7 +1195,8 @@ def render_grid_duration_curve(df: pd.DataFrame, grid_cap_kW: float | None) -> N
         )
         .interactive()
     )
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width='stretch')
+    render_plot_explanation("duration", f"Contractvermogen: {'niet ingesteld' if grid_cap_kW is None else f'{float(grid_cap_kW):.1f} kW'}.")
 
 
 def render_measurement_metadata(metadata: dict | None) -> None:
@@ -1084,7 +1273,8 @@ def render_validation_results(validation: dict | None) -> None:
             )
             .interactive()
         )
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width='stretch')
+        render_plot_explanation("validation", "De blauwe/oranje reeksen laten zien of de simulatie dezelfde orde van grootte en timing heeft als de meting.")
 
         st.markdown("**Spreiding simulatie en meting**")
         scatter_base = aligned.reset_index()[["measured", "simulated", "residual"]].copy()
@@ -1099,7 +1289,8 @@ def render_validation_results(validation: dict | None) -> None:
             ),
             alt.Chart(ref_df).mark_line(strokeDash=[6, 4]).encode(x="ref_x:Q", y="ref_y:Q")
         ).interactive()
-        st.altair_chart(scatter_chart, use_container_width=True)
+        st.altair_chart(scatter_chart, width='stretch')
+        render_plot_explanation("validation", "Punten dicht bij de diagonale lijn betekenen dat simulatie en meting goed overeenkomen.")
 
         st.markdown("**Verschil tussen simulatie en meting**")
         residual_chart = (
@@ -1112,7 +1303,8 @@ def render_validation_results(validation: dict | None) -> None:
             )
             .interactive()
         )
-        st.altair_chart(residual_chart, use_container_width=True)
+        st.altair_chart(residual_chart, width='stretch')
+        render_plot_explanation("validation", "Een residu rond nul betekent weinig afwijking; structureel positief of negatief wijst op bias in het model.")
 
     monthly = validation.get("aggregations", {}).get("monthly")
     if monthly is not None and not monthly.empty:
@@ -1132,7 +1324,8 @@ def render_validation_results(validation: dict | None) -> None:
             )
             .interactive()
         )
-        st.altair_chart(month_chart, use_container_width=True)
+        st.altair_chart(month_chart, width='stretch')
+        render_plot_explanation("validation", "Maandtotalen laten zien of het model over langere perioden te hoog of te laag uitkomt.")
 
 
 
@@ -1248,6 +1441,16 @@ def get_pmobility_overrides():
         "p_charger_max_kW": float(st.session_state["mob_p_charger_max"]),
         "duty_cycle": float(st.session_state["mob_duty_cycle"]),
         "p_site_cap_kW": None if cap <= 0 else cap,
+        "charging_schedule": WeeklySchedule(
+            days_active=(0, 1, 2, 3, 4),
+            start_hour=int(st.session_state["mob_arrival_hour"]),
+            end_hour=int(st.session_state["mob_departure_hour"]),
+        ),
+        "battery_capacity_kWh": float(st.session_state["mob_battery_capacity"]),
+        "arrival_soc_pct": float(st.session_state["mob_arrival_soc"]),
+        "target_departure_soc_pct": float(st.session_state["mob_target_soc"]),
+        "cars_present_fraction": float(st.session_state["mob_cars_present"]) / 100.0,
+        "charge_mode": str(st.session_state["mob_charge_mode"]),
     }
 
 
@@ -1425,15 +1628,16 @@ with load_tab:
                 schedule_editor("bld_sched")
 
             st.subheader("Temperatuurinstellingen")
+            heat_occ_max = max(float(st.session_state["bld_t_cool_occ"]) - 0.5, 0.0)
             c1, c2, c3, c4 = st.columns(4)
             with c1:
-                st.number_input(label_for("bld_t_heat_occ"), value=20.0, step=0.5, key="bld_t_heat_occ", help=help_for("bld_t_heat_occ"))
+                st.number_input(label_for("bld_t_heat_occ"), min_value=0.0, max_value=heat_occ_max, value=float(st.session_state["bld_t_heat_occ"]), step=0.5, key="bld_t_heat_occ", help=help_for("bld_t_heat_occ"))
             with c2:
-                st.number_input(label_for("bld_t_heat_unocc"), value=16.0, step=0.5, key="bld_t_heat_unocc", help=help_for("bld_t_heat_unocc"))
+                st.number_input(label_for("bld_t_heat_unocc"), min_value=0.0, max_value=float(st.session_state["bld_t_heat_occ"]), value=float(st.session_state["bld_t_heat_unocc"]), step=0.5, key="bld_t_heat_unocc", help=help_for("bld_t_heat_unocc"))
             with c3:
-                st.number_input(label_for("bld_t_cool_occ"), value=24.0, step=0.5, key="bld_t_cool_occ", help=help_for("bld_t_cool_occ"))
+                st.number_input(label_for("bld_t_cool_occ"), min_value=float(st.session_state["bld_t_heat_occ"]) + 0.5, value=float(st.session_state["bld_t_cool_occ"]), step=0.5, key="bld_t_cool_occ", help=help_for("bld_t_cool_occ"))
             with c4:
-                st.number_input(label_for("bld_t_cool_unocc"), value=27.0, step=0.5, key="bld_t_cool_unocc", help=help_for("bld_t_cool_unocc"))
+                st.number_input(label_for("bld_t_cool_unocc"), min_value=float(st.session_state["bld_t_cool_occ"]), value=float(st.session_state["bld_t_cool_unocc"]), step=0.5, key="bld_t_cool_unocc", help=help_for("bld_t_cool_unocc"))
 
             st.subheader("Rendement verwarming en koeling")
             c1, c2, c3, c4 = st.columns(4)
@@ -1469,7 +1673,7 @@ with load_tab:
 
         cfg = build_cfg()
         prev_df, _, _, _ = run_load_simulation(cfg, weather=WEATHER_DF.iloc[:24 * 7])
-        preview_week_chart(prev_df, ["P_heat_kW", "P_cool_kW"], "Voorbeeld gebouwvraag")
+        preview_week_chart(prev_df, ["P_heat_kW", "P_cool_kW"], "Voorbeeld gebouwvraag", "building")
 
     with t_pe:
         st.checkbox(label_for("pe_enable"), key="pe_enable", help=help_for("pe_enable"))
@@ -1484,7 +1688,7 @@ with load_tab:
             weather=WEATHER_DF.iloc[:24 * 7],
             pelektro_subloads=subload_payload("pelektro_subloads", "occ"),
         )
-        preview_week_chart(pe_df, ["P_elektro_kW"], "Voorbeeld elektrisch verbruik")
+        preview_week_chart(pe_df, ["P_elektro_kW"], "Voorbeeld elektrisch verbruik", "electric")
 
     with t_pr:
         st.checkbox(label_for("pr_enable"), key="pr_enable", help=help_for("pr_enable"))
@@ -1499,20 +1703,45 @@ with load_tab:
             weather=WEATHER_DF.iloc[:24 * 7],
             pprocess_subloads=subload_payload("pprocess_subloads", "process"),
         )
-        preview_week_chart(pr_df, ["P_process_kW"], "Voorbeeld procesverbruik")
+        preview_week_chart(pr_df, ["P_process_kW"], "Voorbeeld procesverbruik", "process")
 
     with t_mob:
-        st.number_input(label_for("mob_n_cars"), min_value=0, value=0, step=1, key="mob_n_cars", help=help_for("mob_n_cars"))
-        st.number_input(label_for("mob_p_charger_max"), min_value=1.0, value=11.0, step=1.0, key="mob_p_charger_max", help=help_for("mob_p_charger_max"))
-        st.slider(label_for("mob_duty_cycle"), 0.0, 1.0, 0.30, 0.05, key="mob_duty_cycle", help=help_for("mob_duty_cycle"))
-        st.number_input(label_for("mob_site_cap"), min_value=0.0, value=0.0, step=5.0, key="mob_site_cap", help=help_for("mob_site_cap"))
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.number_input(label_for("mob_n_cars"), min_value=0, value=int(st.session_state["mob_n_cars"]), step=1, key="mob_n_cars", help=help_for("mob_n_cars"))
+            st.number_input(label_for("mob_battery_capacity"), min_value=0.0, value=float(st.session_state["mob_battery_capacity"]), step=5.0, key="mob_battery_capacity", help=help_for("mob_battery_capacity"))
+            st.number_input(label_for("mob_arrival_hour"), min_value=0, max_value=23, value=int(st.session_state["mob_arrival_hour"]), step=1, key="mob_arrival_hour", help=help_for("mob_arrival_hour"))
+        with c2:
+            st.number_input(label_for("mob_p_charger_max"), min_value=1.0, value=float(st.session_state["mob_p_charger_max"]), step=1.0, key="mob_p_charger_max", help=help_for("mob_p_charger_max"))
+            st.number_input(label_for("mob_arrival_soc"), min_value=0.0, max_value=100.0, value=float(st.session_state["mob_arrival_soc"]), step=5.0, key="mob_arrival_soc", help=help_for("mob_arrival_soc"))
+            st.number_input(label_for("mob_departure_hour"), min_value=int(st.session_state["mob_arrival_hour"]) + 1, max_value=24, value=int(st.session_state["mob_departure_hour"]), step=1, key="mob_departure_hour", help=help_for("mob_departure_hour"))
+        with c3:
+            st.number_input(label_for("mob_site_cap"), min_value=0.0, value=float(st.session_state["mob_site_cap"]), step=5.0, key="mob_site_cap", help=help_for("mob_site_cap"))
+            st.number_input(label_for("mob_target_soc"), min_value=float(st.session_state["mob_arrival_soc"]), max_value=100.0, value=float(st.session_state["mob_target_soc"]), step=5.0, key="mob_target_soc", help=help_for("mob_target_soc"))
+            st.slider(label_for("mob_cars_present"), 0.0, 100.0, float(st.session_state["mob_cars_present"]), 5.0, key="mob_cars_present", help=help_for("mob_cars_present"))
+        st.selectbox(label_for("mob_charge_mode"), ["smart", "direct"], key="mob_charge_mode", format_func=choice_label, help=help_for("mob_charge_mode"))
 
         mob_cfg = build_cfg()
         mob_df, _, _, _ = run_load_simulation(
             mob_cfg,
             weather=WEATHER_DF.iloc[:24 * 7],
+            grid_cap_kW=safe_contract_value(st.session_state.get("grid_cap_kW")),
         )
-        preview_week_chart(mob_df, ["P_mobility_kW"], "Voorbeeld mobiliteit")
+        mob_summary = mob_df.attrs.get("mobility_summary", {})
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Benodigd per auto", f"{float(mob_summary.get('energy_per_car_kWh', 0.0)):.1f} kWh")
+        c2.metric("Totaal nodig", f"{float(mob_summary.get('energy_required_kWh', 0.0)):.0f} kWh")
+        c3.metric("Geladen", f"{float(mob_summary.get('energy_charged_kWh', 0.0)):.0f} kWh")
+        c4.metric("Laadtekort", f"{float(mob_summary.get('energy_unserved_kWh', 0.0)):.0f} kWh")
+        if float(mob_summary.get("energy_unserved_kWh", 0.0)) > 1e-6:
+            st.warning("Niet alle gewenste laadenergie past binnen de gekozen laadmodus, aanwezigheidstijd en contractruimte.")
+        preview_week_chart(
+            mob_df,
+            ["P_base_without_mobility_kW", "P_mobility_kW"],
+            "Voorbeeld mobiliteit",
+            "mobility",
+            f"Laadmodus: {choice_label(st.session_state['mob_charge_mode'])}. Contractvermogen: {float(st.session_state['grid_cap_kW']):.1f} kW.",
+        )
 
     with t_ov:
         st.checkbox(label_for("ov_enable"), key="ov_enable", help=help_for("ov_enable"))
@@ -1527,7 +1756,7 @@ with load_tab:
             weather=WEATHER_DF.iloc[:24 * 7],
             poverig_subloads=subload_payload("poverig_subloads", "occ"),
         )
-        preview_week_chart(ov_df, ["P_overig_kW"], "Voorbeeld overig verbruik")
+        preview_week_chart(ov_df, ["P_overig_kW"], "Voorbeeld overig verbruik", "other")
 
     with t_run:
         if st.button("Bereken verbruik", type="primary", help="Wat: start de verbruiksberekening. In het model worden gebouw, elektrische lasten, processen en mobiliteit samengevoegd. Effect: resultaten worden vernieuwd met de huidige instellingen."):
@@ -1535,7 +1764,7 @@ with load_tab:
             df, fig_heat, fig_cool, _ = run_load_simulation(
                 cfg,
                 weather=WEATHER_DF,
-                grid_cap_kW=None,
+                grid_cap_kW=safe_contract_value(st.session_state.get("grid_cap_kW")),
                 pelektro_subloads=subload_payload("pelektro_subloads", "occ"),
                 pprocess_subloads=subload_payload("pprocess_subloads", "process"),
                 poverig_subloads=subload_payload("poverig_subloads", "occ"),
@@ -1543,11 +1772,13 @@ with load_tab:
             st.session_state["last_load_df"] = df
             st.write(energy_kpis(df))
             st.pyplot(fig_heat, clear_figure=True)
+            render_plot_explanation("building")
             st.pyplot(fig_cool, clear_figure=True)
+            render_plot_explanation("building")
             st.dataframe(df.head(200))
 
         if st.session_state["last_load_df"] is not None:
-            preview_week_chart(st.session_state["last_load_df"], ["P_load_total_kW", "P_heat_kW", "P_cool_kW"], "Laatste verbruiksberekening")
+            preview_week_chart(st.session_state["last_load_df"], ["P_load_total_kW", "P_heat_kW", "P_cool_kW"], "Laatste verbruiksberekening", "load_total")
 
 
 with generation_tab:
@@ -1562,7 +1793,7 @@ with generation_tab:
         with c3:
             st.number_input(label_for("pv_tilt"), min_value=0.0, max_value=90.0, step=1.0, key="pv_tilt", help=help_for("pv_tilt"))
         with c4:
-            st.number_input(label_for("pv_azimuth"), min_value=0.0, max_value=360.0, step=5.0, key="pv_azimuth", help=help_for("pv_azimuth"))
+            st.selectbox(label_for("pv_azimuth"), PV_AZIMUTH_OPTIONS, key="pv_azimuth", format_func=choice_label, help=help_for("pv_azimuth"))
 
         c5, c6, c7, c8 = st.columns(4)
         with c5:
@@ -1576,7 +1807,13 @@ with generation_tab:
 
         cfg = build_cfg()
         pv_df = simulate_pv(WEATHER_DF.index, cfg.pv, WEATHER_DF)
-        preview_week_chart(pv_df, ["P_pv_kW"], "Voorbeeld zonnepanelen")
+        preview_week_chart(
+            pv_df,
+            ["P_pv_kW"],
+            "Voorbeeld zonnepanelen",
+            "pv",
+            f"Richting: {choice_label(st.session_state['pv_azimuth'])}. Vermogen: {float(st.session_state['pv_cap']):.0f} kWp.",
+        )
         st.write({
             "Zonnepanelen actief": bool(cfg.pv.enabled),
             "Vermogen zonnepanelen [kWp]": float(cfg.pv.installed_capacity_kWp),
@@ -1622,7 +1859,13 @@ with generation_tab:
             index=WEATHER_DF.index,
         )
         wkk_df = dispatch_wkk(WEATHER_DF.index, cfg.wkk, demand_df)
-        preview_week_chart(wkk_df, ["P_wkk_el_kW", "P_wkk_th_kW", "Q_wkk_used_kWth"], "Voorbeeld WKK")
+        preview_week_chart(
+            wkk_df,
+            ["P_wkk_el_kW", "P_wkk_th_kW", "Q_wkk_used_kWth"],
+            "Voorbeeld WKK",
+            "wkk",
+            f"Regeling: {choice_label(st.session_state['wkk_dispatch_mode'])}.",
+        )
         st.write({
             "Piekvermogen WKK elektrisch [kW]": round(float(wkk_df["P_wkk_el_kW"].max()), 2),
             "Piekvermogen WKK warmte [kWth]": round(float(wkk_df["P_wkk_th_kW"].max()), 2),
@@ -1651,7 +1894,7 @@ with generation_tab:
 
         cols = [c for c in ["P_pv_kW", "P_wkk_el_kW", "P_generation_total_kW", "P_battery_charge_kW", "P_battery_discharge_kW", "P_grid_import_kW"] if c in gen_df.columns]
         if cols:
-            st.line_chart(first_week(gen_df)[cols])
+            render_timeseries_plot(gen_df, cols, "Voorbeeld opwek en netimport", explanation_key="generation")
 
         st.write({
             "Piek zonnepanelen [kW]": round(float(gen_df["P_pv_kW"].max()), 2) if "P_pv_kW" in gen_df else 0.0,
@@ -1819,10 +2062,11 @@ with total_tab:
                     ).encode(y="y")
                     layers.append(contract_line)
 
-                st.altair_chart(alt.layer(*layers).interactive(), use_container_width=True)
+                st.altair_chart(alt.layer(*layers).interactive(), width='stretch')
+                render_plot_explanation("grid_week", f"Contractvermogen: {contract if contract is not None else 'niet ingesteld'} kW.")
             plot_peak_grid_import_week_stacked(
                 df,
-                "Peak grid import week – stacked assets",
+                "Zwaarste netweek - bronnen en netimport",
                 contract_kW=safe_contract_value(st.session_state.get("grid_cap_kW")),
             )
 
@@ -1830,7 +2074,7 @@ with total_tab:
             worst_week_cols = [c for c in ["P_grid_import_kW", "P_grid_contract_excess_kW", "P_grid_export_kW"] if c in df.columns]
             if len(worst_week_idx) > 0 and worst_week_cols:
                 st.markdown("**Diagnostiek zwaarste netweek**")
-                st.line_chart(df.loc[worst_week_idx, worst_week_cols])
+                render_timeseries_plot(df.loc[worst_week_idx], worst_week_cols, "Diagnostiek zwaarste netweek", explanation_key="grid_week")
 
             render_grid_duration_curve(
                 df,
@@ -1838,11 +2082,12 @@ with total_tab:
             )
 
             st.pyplot(fig_heat, clear_figure=True)
+            render_plot_explanation("heat_balance")
             st.pyplot(fig_balance, clear_figure=True)
+            render_plot_explanation("grid_week", f"Contractvermogen: {contract if contract is not None else 'niet ingesteld'} kW.")
             heat_cols = [c for c in ["Q_heat_demand_kWth", "Q_hp_th_kWth", "Q_wkk_used_kWth", "Q_boiler_th_kWth", "Q_dh_th_kWth", "Q_thermal_storage_discharge_kWth", "Q_heat_unserved_final_kWth"] if c in df.columns]
             if heat_cols:
-                st.markdown("**Warmtebalans eerste week**")
-                st.line_chart(first_week(df)[heat_cols])
+                render_timeseries_plot(df, heat_cols, "Warmtebalans eerste week", y_title="Warmtevermogen [kWth]", explanation_key="heat_balance")
             st.dataframe(df.head(200))
             export_zip = build_export_bundle(
                 df,
@@ -1881,8 +2126,7 @@ with total_tab:
             contract_kW=float(st.session_state["grid_cap_kW"]) if st.session_state.get("grid_cap_kW") is not None else None,
         )
         if "battery_soc_pct" in st.session_state["last_total_df"].columns:
-            st.markdown("**Vullingsgraad batterij [%]**")
-            st.line_chart(first_week(st.session_state["last_total_df"])[["battery_soc_pct"]])
+            render_timeseries_plot(st.session_state["last_total_df"], ["battery_soc_pct"], "Vullingsgraad batterij", y_title="Vullingsgraad [%]", explanation_key="battery_soc")
 
 with validation_tab:
     st.write("Upload meetdata en vergelijk die met de laatste totale simulatie.")
@@ -1932,7 +2176,7 @@ with validation_tab:
         st.markdown("**Voorbeeld meetdata**")
         preview_cols = [c for c in ["P_grid_import_kW", "P_grid_export_kW", "P_electric_load_kW", "F_gas_kW", "Q_heat_kWth"] if c in measurement_bundle["measured_15m"].columns]
         if preview_cols:
-            st.line_chart(first_week(measurement_bundle["measured_15m"])[preview_cols])
+            render_timeseries_plot(measurement_bundle["measured_15m"], preview_cols, "Voorbeeld meetdata", explanation_key="validation")
         st.dataframe(measurement_bundle["measured_15m"].head(100))
 
     if st.session_state.get("last_total_df") is None:

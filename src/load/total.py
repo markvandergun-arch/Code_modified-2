@@ -17,6 +17,23 @@ from ..heat.district_heat import dispatch_district_heat
 from ..evaluation.grid import evaluate_grid, add_grid_evaluation_columns
 
 
+PLOT_LABELS_NL = {
+    "P_heat_kW": "Verwarming",
+    "P_cool_kW": "Koeling",
+    "P_elektro_kW": "Elektrisch verbruik",
+    "P_process_kW": "Processen",
+    "P_mobility_kW": "Mobiliteit laden",
+    "P_overig_kW": "Overig verbruik",
+    "P_load_total_kW": "Totaal verbruik",
+    "P_total_kW": "Totaal verbruik",
+    "P_grid_import_kW": "Netimport",
+    "P_pv_kW": "Zonnepanelen",
+    "P_wkk_el_kW": "WKK elektrisch",
+    "P_hp_el_kW": "Warmtepomp elektriciteit",
+    "P_grid_export_kW": "Teruglevering",
+}
+
+
 # =============================================================================
 # Index & plotting helpers
 # =============================================================================
@@ -122,16 +139,16 @@ def plot_week(
     comps = [np.clip(w[c].to_numpy(dtype=float), 0.0, None) for c in comp_cols]
     fig, ax = plt.subplots(figsize=(12, 4))
     if comp_cols:
-        ax.stackplot(w.index, comps, labels=comp_cols, alpha=0.85)
+        ax.stackplot(w.index, comps, labels=[PLOT_LABELS_NL.get(c, c) for c in comp_cols], alpha=0.85)
     overlay_col = "P_load_total_kW" if "P_load_total_kW" in w.columns else "P_total_kW"
     if overlay_col in w.columns:
-        ax.plot(w.index, w[overlay_col], linewidth=2.0, label=overlay_col)
+        ax.plot(w.index, w[overlay_col], linewidth=2.0, label=PLOT_LABELS_NL.get(overlay_col, overlay_col))
     if "P_grid_import_kW" in w.columns:
-        ax.plot(w.index, w["P_grid_import_kW"], linewidth=1.6, label="P_grid_import_kW")
+        ax.plot(w.index, w["P_grid_import_kW"], linewidth=1.6, label=PLOT_LABELS_NL["P_grid_import_kW"])
     if grid_cap_kW is not None:
-        ax.axhline(float(grid_cap_kW), linestyle="--", linewidth=1.5, label=f"Grid cap = {grid_cap_kW:.1f} kW")
+        ax.axhline(float(grid_cap_kW), linestyle="--", linewidth=1.5, label=f"Contractvermogen = {grid_cap_kW:.1f} kW")
     ax.set_title(title)
-    ax.set_ylabel("kW")
+    ax.set_ylabel("Vermogen [kW]")
     ax.grid(True, alpha=0.2)
     ax.legend(loc="upper right", ncol=3, fontsize=8)
     _format_plot_time_axis(ax, w.index)
@@ -157,11 +174,11 @@ def plot_energy_balance_week(
         "P_grid_export_kW",
     ]:
         if col in w.columns:
-            ax.plot(w.index, w[col], linewidth=1.8, label=col)
+            ax.plot(w.index, w[col], linewidth=1.8, label=PLOT_LABELS_NL.get(col, col))
     if grid_cap_kW is not None:
-        ax.axhline(float(grid_cap_kW), linestyle="--", linewidth=1.5, label=f"Grid cap = {grid_cap_kW:.1f} kW")
+        ax.axhline(float(grid_cap_kW), linestyle="--", linewidth=1.5, label=f"Contractvermogen = {grid_cap_kW:.1f} kW")
     ax.set_title(title)
-    ax.set_ylabel("kW / kWth")
+    ax.set_ylabel("Vermogen [kW / kWth]")
     ax.grid(True, alpha=0.2)
     ax.legend(loc="upper right", ncol=3, fontsize=8)
     _format_plot_time_axis(ax, w.index)
@@ -177,6 +194,7 @@ def _run_load_components(
     *,
     index: pd.DatetimeIndex,
     weather: Optional[pd.DataFrame] = None,
+    grid_cap_kW: Optional[float] = None,
     include_debug: bool = False,
     pelektro_subloads: Optional[List[Any]] = None,
     pprocess_subloads: Optional[List[Any]] = None,
@@ -209,13 +227,26 @@ def _run_load_components(
         subloads=pprocess_subloads,
         name="P_process_kW",
     )
-    P_mobility_kW = pmobiliteit.simulate(index, config.pmobility, name="P_mobility_kW")
     P_overig_kW = poverig.simulate(
         index,
         config.poverig,
         bvo_m2=config.building.bvo_m2,
         subloads=poverig_subloads,
         name="P_overig_kW",
+    )
+    P_base_without_mobility_kW = (
+        P_heat_kW
+        + P_cool_kW
+        + P_elektro_kW
+        + P_process_kW
+        + P_overig_kW
+    )
+    P_mobility_kW = pmobiliteit.simulate(
+        index,
+        config.pmobility,
+        base_load_kW=P_base_without_mobility_kW,
+        grid_cap_kW=grid_cap_kW,
+        name="P_mobility_kW",
     )
 
     df = pd.DataFrame(
@@ -228,9 +259,28 @@ def _run_load_components(
             "P_process_kW": P_process_kW,
             "P_mobility_kW": P_mobility_kW,
             "P_overig_kW": P_overig_kW,
+            "P_base_without_mobility_kW": P_base_without_mobility_kW,
         },
         index=index,
     )
+    df["E_mobility_charged_kWh"] = P_mobility_kW.to_numpy(dtype=float) * (
+        (df.index[1] - df.index[0]).total_seconds() / 3600.0 if len(df.index) > 1 else 1.0
+    )
+    df["E_mobility_unserved_kWh"] = 0.0
+    mobility_unserved_by_day = P_mobility_kW.attrs.get("mobility_unserved_by_day", {}) or {}
+    if mobility_unserved_by_day:
+        date_keys = pd.Series(df.index.date, index=df.index)
+        for day, value in mobility_unserved_by_day.items():
+            day_idx = df.index[date_keys.to_numpy() == day]
+            if len(day_idx) > 0:
+                df.loc[day_idx[-1], "E_mobility_unserved_kWh"] = float(value)
+    df.attrs["mobility_summary"] = {
+        "energy_per_car_kWh": float(P_mobility_kW.attrs.get("mobility_energy_per_car_kWh", 0.0)),
+        "energy_required_kWh": float(P_mobility_kW.attrs.get("mobility_energy_required_kWh", 0.0)),
+        "energy_charged_kWh": float(P_mobility_kW.attrs.get("mobility_energy_charged_kWh", 0.0)),
+        "energy_unserved_kWh": float(P_mobility_kW.attrs.get("mobility_energy_unserved_kWh", 0.0)),
+        "peak_power_kW": float(P_mobility_kW.max()) if len(P_mobility_kW) else 0.0,
+    }
     df["P_load_total_legacy_kW"] = (
         df["P_heat_kW"]
         + df["P_cool_kW"]
@@ -365,6 +415,7 @@ def run_load_simulation(
         config,
         index=index,
         weather=weather,
+        grid_cap_kW=grid_cap_kW,
         include_debug=include_debug,
         pelektro_subloads=pelektro_subloads,
         pprocess_subloads=pprocess_subloads,
@@ -372,8 +423,8 @@ def run_load_simulation(
     )
     heat_peak_week = find_peak_week(df, "P_heat_kW", window_days=7)
     cool_peak_week = find_peak_week(df, "P_cool_kW", window_days=7)
-    fig_heat = plot_week(df, heat_peak_week, grid_cap_kW=grid_cap_kW, title="Peak heating week")
-    fig_cool = plot_week(df, cool_peak_week, grid_cap_kW=grid_cap_kW, title="Peak cooling week")
+    fig_heat = plot_week(df, heat_peak_week, grid_cap_kW=grid_cap_kW, title="Week met hoogste verwarmingsvraag")
+    fig_cool = plot_week(df, cool_peak_week, grid_cap_kW=grid_cap_kW, title="Week met hoogste koelvraag")
     return df, fig_heat, fig_cool, debug_df
 
 
@@ -395,6 +446,7 @@ def run_energy_system_simulation(
         config,
         index=index,
         weather=weather,
+        grid_cap_kW=grid_cap_kW,
         include_debug=include_debug,
         pelektro_subloads=pelektro_subloads,
         pprocess_subloads=pprocess_subloads,
@@ -590,11 +642,11 @@ def run_energy_system_simulation(
 
     heat_peak_week = find_peak_week(balance_df, "Q_heat_demand_total_kWth", window_days=7)
     grid_peak_week = find_peak_week(balance_df, "P_grid_import_kW", window_days=7)
-    fig_heat = plot_week(balance_df, heat_peak_week, grid_cap_kW=grid_cap_kW, title="Peak heating week")
+    fig_heat = plot_week(balance_df, heat_peak_week, grid_cap_kW=grid_cap_kW, title="Week met hoogste verwarmingsvraag")
     fig_balance = plot_energy_balance_week(
         balance_df,
         grid_peak_week,
         grid_cap_kW=grid_cap_kW,
-        title="Peak grid-import week",
+        title="Week met hoogste netimport",
     )
     return balance_df, fig_heat, fig_balance, debug_df

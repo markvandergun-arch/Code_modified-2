@@ -273,13 +273,18 @@ class ProcessLoadDefaults:
 @dataclass(frozen=True)
 class MobilityLoadDefaults:
     """
-    Simple EV charging window model.
+    Deterministic EV charging model.
     """
     n_cars: int
     p_charger_max_kW: float        # per car
     duty_cycle: float              # fraction of cars simultaneously charging (0..1)
     p_site_cap_kW: Optional[float] # optional cap for mobility load
     charging_schedule: WeeklySchedule
+    battery_capacity_kWh: float = 60.0
+    arrival_soc_pct: float = 50.0
+    target_departure_soc_pct: float = 80.0
+    cars_present_fraction: float = 1.0
+    charge_mode: str = "smart"     # "direct" | "smart"
 
 
 
@@ -932,6 +937,11 @@ def make_default_load_config(
         duty_cycle=0.3,
         p_site_cap_kW=None,
         charging_schedule=default_charge_sched,
+        battery_capacity_kWh=60.0,
+        arrival_soc_pct=50.0,
+        target_departure_soc_pct=80.0,
+        cars_present_fraction=1.0,
+        charge_mode="smart",
     )
     if pmobility_overrides:
         pmobility = replace(pmobility, **pmobility_overrides)
@@ -944,6 +954,16 @@ def make_default_load_config(
             raise ValueError("pmobility.p_charger_max_kW must be > 0")
         if pmobility.p_site_cap_kW is not None and pmobility.p_site_cap_kW <= 0:
             raise ValueError("pmobility.p_site_cap_kW must be > 0 when provided")
+        if pmobility.battery_capacity_kWh < 0:
+            raise ValueError("pmobility.battery_capacity_kWh must be >= 0")
+        if not (0.0 <= pmobility.arrival_soc_pct <= 100.0):
+            raise ValueError("pmobility.arrival_soc_pct must be between 0 and 100")
+        if not (0.0 <= pmobility.target_departure_soc_pct <= 100.0):
+            raise ValueError("pmobility.target_departure_soc_pct must be between 0 and 100")
+        if not (0.0 <= pmobility.cars_present_fraction <= 1.0):
+            raise ValueError("pmobility.cars_present_fraction must be between 0 and 1")
+        if pmobility.charge_mode not in {"direct", "smart"}:
+            raise ValueError("pmobility.charge_mode must be 'direct' or 'smart'")
 
     # 8) other loads defaults
     po_base = _POVERIG_BY_BTYPE[building_type]
