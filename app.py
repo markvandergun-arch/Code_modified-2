@@ -143,14 +143,23 @@ LABELS = {
     "bld_t_heat_unocc": "Verwarmingstemperatuur buiten gebruik [°C]",
     "bld_t_cool_occ": "Koeltemperatuur tijdens gebruik [°C]",
     "bld_t_cool_unocc": "Koeltemperatuur buiten gebruik [°C]",
-    "bld_cop_winter": "COP gebouwverwarming winter",
-    "bld_cop_spring": "COP gebouwverwarming lente",
-    "bld_cop_summer": "COP gebouwverwarming zomer",
-    "bld_cop_autumn": "COP gebouwverwarming herfst",
-    "bld_eer_winter": "EER gebouwkoeling winter",
-    "bld_eer_spring": "EER gebouwkoeling lente",
-    "bld_eer_summer": "EER gebouwkoeling zomer",
-    "bld_eer_autumn": "EER gebouwkoeling herfst",
+    "bld_cop_winter": "COP referentieverwarming winter",
+    "bld_cop_spring": "COP referentieverwarming lente",
+    "bld_cop_summer": "COP referentieverwarming zomer",
+    "bld_cop_autumn": "COP referentieverwarming herfst",
+    "bld_eer_winter": "EER referentiekoeling winter",
+    "bld_eer_spring": "EER referentiekoeling lente",
+    "bld_eer_summer": "EER referentiekoeling zomer",
+    "bld_eer_autumn": "EER referentiekoeling herfst",
+    "ref_heat_enabled": "Referentie elektrische verwarming gebruiken",
+    "ref_cop_winter": "Referentie COP verwarming winter",
+    "ref_cop_spring": "Referentie COP verwarming lente",
+    "ref_cop_summer": "Referentie COP verwarming zomer",
+    "ref_cop_autumn": "Referentie COP verwarming herfst",
+    "ref_eer_winter": "Referentie EER koeling winter",
+    "ref_eer_spring": "Referentie EER koeling lente",
+    "ref_eer_summer": "Referentie EER koeling zomer",
+    "ref_eer_autumn": "Referentie EER koeling herfst",
     "bld_eta_wtw": "Warmteterugwinning ventilatie",
     "bld_qv10": "Luchtdichtheid qv10 [m³/h per m²]",
     "bld_g_value": "Zontoetreding glas",
@@ -255,14 +264,23 @@ HELP_TEXTS = {
     "bld_t_heat_unocc": "Wat: gewenste temperatuur buiten gebruik. In het model bepaalt dit nacht- en weekendverwarming. Effect: hoger instellen verhoogt basiswarmtevraag.",
     "bld_t_cool_occ": "Wat: temperatuur waarboven tijdens gebruik wordt gekoeld. In het model bepaalt dit de koelvraag. Effect: lager instellen verhoogt de koelvraag.",
     "bld_t_cool_unocc": "Wat: temperatuur waarboven buiten gebruik wordt gekoeld. In het model bepaalt dit koeling buiten gebruikstijd. Effect: lager instellen kan extra nacht- en weekendkoeling geven.",
-    "bld_cop_winter": "Wat: verwarmingsrendement in de winter. In het model zet dit gebouw-warmtevraag om naar elektriciteitsvraag. Effect: hogere COP verlaagt stroomgebruik voor verwarming.",
-    "bld_cop_spring": "Wat: verwarmingsrendement in de lente. In het model zet dit gebouw-warmtevraag om naar elektriciteitsvraag. Effect: hogere COP verlaagt stroomgebruik voor verwarming.",
-    "bld_cop_summer": "Wat: verwarmingsrendement in de zomer. In het model zet dit gebouw-warmtevraag om naar elektriciteitsvraag. Effect: hogere COP verlaagt stroomgebruik voor verwarming.",
-    "bld_cop_autumn": "Wat: verwarmingsrendement in de herfst. In het model zet dit gebouw-warmtevraag om naar elektriciteitsvraag. Effect: hogere COP verlaagt stroomgebruik voor verwarming.",
-    "bld_eer_winter": "Wat: koelrendement in de winter. In het model zet dit koelvraag om naar elektriciteitsvraag. Effect: hogere EER verlaagt stroomgebruik voor koeling.",
-    "bld_eer_spring": "Wat: koelrendement in de lente. In het model zet dit koelvraag om naar elektriciteitsvraag. Effect: hogere EER verlaagt stroomgebruik voor koeling.",
-    "bld_eer_summer": "Wat: koelrendement in de zomer. In het model zet dit koelvraag om naar elektriciteitsvraag. Effect: hogere EER verlaagt stroomgebruik voor koeling.",
-    "bld_eer_autumn": "Wat: koelrendement in de herfst. In het model zet dit koelvraag om naar elektriciteitsvraag. Effect: hogere EER verlaagt stroomgebruik voor koeling.",
+    "bld_cop_winter": "Wat: oude projectwaarde voor referentieverwarming. In het model wordt deze gemapt naar de referentie-installatie. Effect: hogere COP verlaagt stroomgebruik voor elektrische fallback-verwarming.",
+    "bld_cop_spring": "Wat: oude projectwaarde voor referentieverwarming. In het model wordt deze gemapt naar de referentie-installatie. Effect: hogere COP verlaagt stroomgebruik voor elektrische fallback-verwarming.",
+    "bld_cop_summer": "Wat: oude projectwaarde voor referentieverwarming. In het model wordt deze gemapt naar de referentie-installatie. Effect: hogere COP verlaagt stroomgebruik voor elektrische fallback-verwarming.",
+    "bld_cop_autumn": "Wat: oude projectwaarde voor referentieverwarming. In het model wordt deze gemapt naar de referentie-installatie. Effect: hogere COP verlaagt stroomgebruik voor elektrische fallback-verwarming.",
+    "bld_eer_winter": "Wat: oude projectwaarde voor referentiekoeling. In het model wordt deze gemapt naar de referentie-installatie. Effect: hogere EER verlaagt stroomgebruik voor koeling.",
+    "bld_eer_spring": "Wat: oude projectwaarde voor referentiekoeling. In het model wordt deze gemapt naar de referentie-installatie. Effect: hogere EER verlaagt stroomgebruik voor koeling.",
+    "bld_eer_summer": "Wat: oude projectwaarde voor referentiekoeling. In het model wordt deze gemapt naar de referentie-installatie. Effect: hogere EER verlaagt stroomgebruik voor koeling.",
+    "bld_eer_autumn": "Wat: oude projectwaarde voor referentiekoeling. In het model wordt deze gemapt naar de referentie-installatie. Effect: hogere EER verlaagt stroomgebruik voor koeling.",
+    "ref_heat_enabled": "Wat: elektrische fallback voor resterende warmtevraag. In het model wordt alleen warmtevraag die niet door WKK, opslag, warmtepomp, ketel of warmtenet is geleverd omgerekend naar elektriciteit. Effect: aan voorkomt ongedekte warmte, maar verhoogt netvraag; uit laat warmte ongedekt als capaciteit ontbreekt.",
+    "ref_cop_winter": "Wat: rendement van referentie elektrische verwarming in de winter. In het model wordt resterende warmtevraag gedeeld door deze COP. Effect: hogere COP geeft minder elektriciteitsvraag voor dezelfde warmte.",
+    "ref_cop_spring": "Wat: rendement van referentie elektrische verwarming in de lente. In het model wordt resterende warmtevraag gedeeld door deze COP. Effect: hogere COP geeft minder elektriciteitsvraag voor dezelfde warmte.",
+    "ref_cop_summer": "Wat: rendement van referentie elektrische verwarming in de zomer. In het model wordt resterende warmtevraag gedeeld door deze COP. Effect: hogere COP geeft minder elektriciteitsvraag voor dezelfde warmte.",
+    "ref_cop_autumn": "Wat: rendement van referentie elektrische verwarming in de herfst. In het model wordt resterende warmtevraag gedeeld door deze COP. Effect: hogere COP geeft minder elektriciteitsvraag voor dezelfde warmte.",
+    "ref_eer_winter": "Wat: rendement van elektrische referentiekoeling in de winter. In het model wordt koelvraag gedeeld door deze EER. Effect: hogere EER verlaagt stroomgebruik voor koeling.",
+    "ref_eer_spring": "Wat: rendement van elektrische referentiekoeling in de lente. In het model wordt koelvraag gedeeld door deze EER. Effect: hogere EER verlaagt stroomgebruik voor koeling.",
+    "ref_eer_summer": "Wat: rendement van elektrische referentiekoeling in de zomer. In het model wordt koelvraag gedeeld door deze EER. Effect: hogere EER verlaagt stroomgebruik voor koeling.",
+    "ref_eer_autumn": "Wat: rendement van elektrische referentiekoeling in de herfst. In het model wordt koelvraag gedeeld door deze EER. Effect: hogere EER verlaagt stroomgebruik voor koeling.",
     "bld_eta_wtw": "Wat: aandeel ventilatiewarmte dat wordt teruggewonnen. In het model verlaagt dit ventilatieverlies. Effect: hoger verlaagt de warmtevraag.",
     "bld_qv10": "Wat: maat voor luchtlekken in het gebouw. In het model verhoogt dit infiltratieverlies. Effect: hoger betekent meestal meer warmtevraag.",
     "bld_g_value": "Wat: hoeveel zonnewarmte door glas binnenkomt. In het model beïnvloedt dit zonnewinst en koeling. Effect: hoger kan verwarming verlagen maar koeling verhogen.",
@@ -462,6 +480,15 @@ def app_state_defaults() -> dict:
         "bld_eer_spring": 3.5,
         "bld_eer_summer": 3.1,
         "bld_eer_autumn": 3.4,
+        "ref_heat_enabled": True,
+        "ref_cop_winter": 3.6,
+        "ref_cop_spring": 4.1,
+        "ref_cop_summer": 4.4,
+        "ref_cop_autumn": 4.0,
+        "ref_eer_winter": 3.3,
+        "ref_eer_spring": 3.5,
+        "ref_eer_summer": 3.1,
+        "ref_eer_autumn": 3.4,
         "bld_eta_wtw": 0.80,
         "bld_qv10": 0.40,
         "bld_g_value": 0.50,
@@ -633,6 +660,21 @@ def apply_project_payload(payload: dict) -> tuple[int, list[str]]:
     raw_state = payload.get("state", payload)
     if not isinstance(raw_state, dict):
         raise ValueError("Projectbestand bevat geen geldige 'state'.")
+
+    raw_state = dict(raw_state)
+    legacy_reference_map = {
+        "ref_cop_winter": "bld_cop_winter",
+        "ref_cop_spring": "bld_cop_spring",
+        "ref_cop_summer": "bld_cop_summer",
+        "ref_cop_autumn": "bld_cop_autumn",
+        "ref_eer_winter": "bld_eer_winter",
+        "ref_eer_spring": "bld_eer_spring",
+        "ref_eer_summer": "bld_eer_summer",
+        "ref_eer_autumn": "bld_eer_autumn",
+    }
+    for new_key, old_key in legacy_reference_map.items():
+        if new_key not in raw_state and old_key in raw_state:
+            raw_state[new_key] = raw_state[old_key]
 
     defaults = app_state_defaults()
     allowed = set(defaults) | set(PROJECT_EXTRA_STATE_KEYS)
@@ -877,8 +919,12 @@ def first_week(df: pd.DataFrame) -> pd.DataFrame:
 
 
 COLUMN_LABELS = {
-    "P_heat_kW": "Verwarming",
-    "P_cool_kW": "Koeling",
+    "P_heat_kW": "Referentie elektrische verwarming",
+    "P_heat_ref_el_kW": "Referentie elektrische verwarming",
+    "P_cool_kW": "Elektrische koeling",
+    "P_cool_el_kW": "Elektrische koeling",
+    "Q_heat_kWth": "Warmtevraag",
+    "Q_cool_kWth": "Koelvraag",
     "P_elektro_kW": "Elektrisch verbruik",
     "P_process_kW": "Processen",
     "P_mobility_kW": "Mobiliteit laden",
@@ -904,17 +950,18 @@ COLUMN_LABELS = {
     "Q_wkk_used_kWth": "WKK-warmte",
     "Q_boiler_th_kWth": "Ketelwarmte",
     "Q_dh_th_kWth": "Warmtenet",
+    "Q_heat_from_reference_kWth": "Referentieverwarming",
     "Q_thermal_storage_discharge_kWth": "Warmteopslag ontladen",
     "Q_heat_unserved_final_kWth": "Ongedekte warmte",
 }
 
 PLOT_EXPLANATIONS = {
-    "building": "Deze grafiek toont de gebouwgebonden verwarmings- en koelvraag in de eerste simulatie-week. De y-as is vermogen in kW: hogere pieken betekenen dat installaties meer capaciteit moeten leveren.",
+    "building": "Deze grafiek toont de thermische warmtevraag en koelvraag van het gebouw in de eerste simulatie-week. De y-as is kWth: hogere pieken betekenen dat warmte- of koelinstallaties meer capaciteit moeten leveren.",
     "electric": "Deze grafiek toont het elektrische basisverbruik in de eerste week. De y-as is vermogen in kW. Een hoge basislast verhoogt netimport en beperkt ruimte voor slim laden.",
     "process": "Deze grafiek toont procesverbruik in de eerste week. Pieken geven momenten waarop processen veel elektrisch vermogen vragen.",
     "mobility": "Deze grafiek toont het laadvermogen voor elektrische auto's. Bij slim laden blijft laden binnen de beschikbare contractruimte; een tekort betekent dat de gewenste vertreklading niet volledig gehaald wordt.",
     "other": "Deze grafiek toont overige elektrische lasten. Dit is restverbruik dat meetelt in de totale basislast.",
-    "load_total": "Deze grafiek combineert totaalverbruik, verwarming en koeling. Gebruik dit om te zien welke componenten pieken veroorzaken.",
+    "load_total": "Deze grafiek combineert totaal elektrisch verbruik, elektrische koeling en eventuele referentie-elektrische verwarming. Gebruik dit om te zien welke elektrische componenten pieken veroorzaken.",
     "pv": "Deze grafiek toont de PV-opbrengst in kW. Richting, helling en vermogen bepalen wanneer en hoeveel zonnestroom beschikbaar is.",
     "wkk": "Deze grafiek toont elektrische en thermische WKK-productie. De regeling bepaalt wanneer de WKK draait en of die vooral stroom of warmte levert.",
     "generation": "Deze grafiek toont lokale opwek, opslagstromen en netimport. Zo zie je of opwek samenvalt met de energievraag.",
@@ -1069,6 +1116,8 @@ def energy_kpis(df: pd.DataFrame) -> dict:
         "Jaaropwek zonnepanelen [kWh]": round(float((df.get("P_pv_kW", zero) * DT_HOURS).sum()), 0),
         "Jaaropwek WKK elektrisch [kWh]": round(float((df.get("P_wkk_el_kW", zero) * DT_HOURS).sum()), 0),
         "Jaarverbruik warmtepomp elektriciteit [kWh]": round(float((df.get("P_hp_el_kW", zero) * DT_HOURS).sum()), 0),
+        "Jaarverbruik referentie verwarming elektriciteit [kWh]": round(float((df.get("P_heat_ref_el_kW", zero) * DT_HOURS).sum()), 0),
+        "Jaarverbruik koeling elektriciteit [kWh]": round(float((df.get("P_cool_el_kW", zero) * DT_HOURS).sum()), 0),
         "Jaarlijkse netimport [kWh]": round(float((df.get("P_grid_import_kW", zero) * DT_HOURS).sum()), 0),
         "Jaarlijkse teruglevering [kWh]": round(float((df.get("P_grid_export_kW", zero) * DT_HOURS).sum()), 0),
         "Jaarlijks laden batterij [kWh]": round(float((df.get("P_battery_charge_kW", zero) * DT_HOURS).sum()), 0),
@@ -1078,6 +1127,7 @@ def energy_kpis(df: pd.DataFrame) -> dict:
         "Jaarlijkse ongedekte warmte [kWhth]": round(float((df.get("Q_heat_unserved_final_kWth", zero) * DT_HOURS).sum()), 0),
         "Jaarlijkse ketelwarmte [kWhth]": round(float((df.get("Q_boiler_th_kWth", zero) * DT_HOURS).sum()), 0),
         "Jaarlijkse warmtenetlevering [kWhth]": round(float((df.get("Q_dh_th_kWth", zero) * DT_HOURS).sum()), 0),
+        "Jaarlijkse referentieverwarming [kWhth]": round(float((df.get("Q_heat_from_reference_kWth", zero) * DT_HOURS).sum()), 0),
         "Jaarlijkse WKK-warmte benut [kWhth]": round(float((df.get("Q_wkk_used_kWth", zero) * DT_HOURS).sum()), 0),
         "Jaarlijkse WKK-warmte niet benut [kWhth]": round(float((df.get("Q_wkk_dumped_kWth", zero) * DT_HOURS).sum()), 0),
         "Jaarlijks ontladen warmteopslag [kWhth]": round(float((df.get("Q_thermal_storage_discharge_kWth", zero) * DT_HOURS).sum()), 0),
@@ -1388,18 +1438,6 @@ def get_building_overrides():
         "t_heat_set_unocc_C": float(st.session_state["bld_t_heat_unocc"]),
         "t_cool_set_occ_C": float(st.session_state["bld_t_cool_occ"]),
         "t_cool_set_unocc_C": float(st.session_state["bld_t_cool_unocc"]),
-        "seasonal_cop_heat_by_season": {
-            "winter": float(st.session_state["bld_cop_winter"]),
-            "spring": float(st.session_state["bld_cop_spring"]),
-            "summer": float(st.session_state["bld_cop_summer"]),
-            "autumn": float(st.session_state["bld_cop_autumn"]),
-        },
-        "seasonal_eer_cool_by_season": {
-            "winter": float(st.session_state["bld_eer_winter"]),
-            "spring": float(st.session_state["bld_eer_spring"]),
-            "summer": float(st.session_state["bld_eer_summer"]),
-            "autumn": float(st.session_state["bld_eer_autumn"]),
-        },
         "eta_wtw": float(st.session_state["bld_eta_wtw"]),
         "qv10_m3ph_per_m2": float(st.session_state["bld_qv10"]),
         "g_value": float(st.session_state["bld_g_value"]),
@@ -1533,6 +1571,19 @@ def build_cfg():
             "wkk_dispatch_mode": str(st.session_state["wkk_dispatch_mode"]),
             "thermal_storage_strategy": str(st.session_state["thermal_storage_strategy"]),
             "source_priority_mode": str(st.session_state["heat_source_priority_mode"]),
+            "reference_heating_enabled": bool(st.session_state["ref_heat_enabled"]),
+            "reference_cop_heat_by_season": {
+                "winter": float(st.session_state["ref_cop_winter"]),
+                "spring": float(st.session_state["ref_cop_spring"]),
+                "summer": float(st.session_state["ref_cop_summer"]),
+                "autumn": float(st.session_state["ref_cop_autumn"]),
+            },
+            "reference_eer_cool_by_season": {
+                "winter": float(st.session_state["ref_eer_winter"]),
+                "spring": float(st.session_state["ref_eer_spring"]),
+                "summer": float(st.session_state["ref_eer_summer"]),
+                "autumn": float(st.session_state["ref_eer_autumn"]),
+            },
             "shared_grid_contract_cap": True,
         },
         measurement_overrides={
@@ -1639,27 +1690,6 @@ with load_tab:
             with c4:
                 st.number_input(label_for("bld_t_cool_unocc"), min_value=float(st.session_state["bld_t_cool_occ"]), value=float(st.session_state["bld_t_cool_unocc"]), step=0.5, key="bld_t_cool_unocc", help=help_for("bld_t_cool_unocc"))
 
-            st.subheader("Rendement verwarming en koeling")
-            c1, c2, c3, c4 = st.columns(4)
-            with c1:
-                st.number_input(label_for("bld_cop_winter"), value=3.6, step=0.1, key="bld_cop_winter", help=help_for("bld_cop_winter"))
-            with c2:
-                st.number_input(label_for("bld_cop_spring"), value=4.1, step=0.1, key="bld_cop_spring", help=help_for("bld_cop_spring"))
-            with c3:
-                st.number_input(label_for("bld_cop_summer"), value=4.4, step=0.1, key="bld_cop_summer", help=help_for("bld_cop_summer"))
-            with c4:
-                st.number_input(label_for("bld_cop_autumn"), value=4.0, step=0.1, key="bld_cop_autumn", help=help_for("bld_cop_autumn"))
-
-            c5, c6, c7, c8 = st.columns(4)
-            with c5:
-                st.number_input(label_for("bld_eer_winter"), value=3.3, step=0.1, key="bld_eer_winter", help=help_for("bld_eer_winter"))
-            with c6:
-                st.number_input(label_for("bld_eer_spring"), value=3.5, step=0.1, key="bld_eer_spring", help=help_for("bld_eer_spring"))
-            with c7:
-                st.number_input(label_for("bld_eer_summer"), value=3.1, step=0.1, key="bld_eer_summer", help=help_for("bld_eer_summer"))
-            with c8:
-                st.number_input(label_for("bld_eer_autumn"), value=3.4, step=0.1, key="bld_eer_autumn", help=help_for("bld_eer_autumn"))
-
             st.subheader("Ventilatie, glas en zon")
             c9, c10, c11, c12 = st.columns(4)
             with c9:
@@ -1673,7 +1703,7 @@ with load_tab:
 
         cfg = build_cfg()
         prev_df, _, _, _ = run_load_simulation(cfg, weather=WEATHER_DF.iloc[:24 * 7])
-        preview_week_chart(prev_df, ["P_heat_kW", "P_cool_kW"], "Voorbeeld gebouwvraag", "building")
+        preview_week_chart(prev_df, ["Q_heat_kWth", "Q_cool_kWth"], "Voorbeeld gebouwvraag", "building")
 
     with t_pe:
         st.checkbox(label_for("pe_enable"), key="pe_enable", help=help_for("pe_enable"))
@@ -1778,7 +1808,7 @@ with load_tab:
             st.dataframe(df.head(200))
 
         if st.session_state["last_load_df"] is not None:
-            preview_week_chart(st.session_state["last_load_df"], ["P_load_total_kW", "P_heat_kW", "P_cool_kW"], "Laatste verbruiksberekening", "load_total")
+            preview_week_chart(st.session_state["last_load_df"], ["P_load_total_kW", "P_heat_ref_el_kW", "P_cool_el_kW"], "Laatste verbruiksberekening", "load_total")
 
 
 with generation_tab:
@@ -1906,7 +1936,31 @@ with generation_tab:
 
 
 with heat_tab:
-    h_hp, h_boiler, h_dh = st.tabs(["Warmtepomp", "Ketel", "Warmtenet"])
+    h_ref, h_hp, h_boiler, h_dh = st.tabs(["Referentie-installatie", "Warmtepomp", "Ketel", "Warmtenet"])
+
+    with h_ref:
+        st.checkbox(label_for("ref_heat_enabled"), key="ref_heat_enabled", help=help_for("ref_heat_enabled"))
+        st.subheader("Referentie COP verwarming")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.number_input(label_for("ref_cop_winter"), min_value=0.1, value=float(st.session_state["ref_cop_winter"]), step=0.1, key="ref_cop_winter", help=help_for("ref_cop_winter"))
+        with c2:
+            st.number_input(label_for("ref_cop_spring"), min_value=0.1, value=float(st.session_state["ref_cop_spring"]), step=0.1, key="ref_cop_spring", help=help_for("ref_cop_spring"))
+        with c3:
+            st.number_input(label_for("ref_cop_summer"), min_value=0.1, value=float(st.session_state["ref_cop_summer"]), step=0.1, key="ref_cop_summer", help=help_for("ref_cop_summer"))
+        with c4:
+            st.number_input(label_for("ref_cop_autumn"), min_value=0.1, value=float(st.session_state["ref_cop_autumn"]), step=0.1, key="ref_cop_autumn", help=help_for("ref_cop_autumn"))
+
+        st.subheader("Referentie EER koeling")
+        c5, c6, c7, c8 = st.columns(4)
+        with c5:
+            st.number_input(label_for("ref_eer_winter"), min_value=0.1, value=float(st.session_state["ref_eer_winter"]), step=0.1, key="ref_eer_winter", help=help_for("ref_eer_winter"))
+        with c6:
+            st.number_input(label_for("ref_eer_spring"), min_value=0.1, value=float(st.session_state["ref_eer_spring"]), step=0.1, key="ref_eer_spring", help=help_for("ref_eer_spring"))
+        with c7:
+            st.number_input(label_for("ref_eer_summer"), min_value=0.1, value=float(st.session_state["ref_eer_summer"]), step=0.1, key="ref_eer_summer", help=help_for("ref_eer_summer"))
+        with c8:
+            st.number_input(label_for("ref_eer_autumn"), min_value=0.1, value=float(st.session_state["ref_eer_autumn"]), step=0.1, key="ref_eer_autumn", help=help_for("ref_eer_autumn"))
 
     with h_hp:
         st.checkbox(label_for("hp_enabled"), key="hp_enabled", help=help_for("hp_enabled"))
@@ -2085,7 +2139,7 @@ with total_tab:
             render_plot_explanation("heat_balance")
             st.pyplot(fig_balance, clear_figure=True)
             render_plot_explanation("grid_week", f"Contractvermogen: {contract if contract is not None else 'niet ingesteld'} kW.")
-            heat_cols = [c for c in ["Q_heat_demand_kWth", "Q_hp_th_kWth", "Q_wkk_used_kWth", "Q_boiler_th_kWth", "Q_dh_th_kWth", "Q_thermal_storage_discharge_kWth", "Q_heat_unserved_final_kWth"] if c in df.columns]
+            heat_cols = [c for c in ["Q_heat_demand_kWth", "Q_hp_th_kWth", "Q_wkk_used_kWth", "Q_boiler_th_kWth", "Q_dh_th_kWth", "Q_heat_from_reference_kWth", "Q_thermal_storage_discharge_kWth", "Q_heat_unserved_final_kWth"] if c in df.columns]
             if heat_cols:
                 render_timeseries_plot(df, heat_cols, "Warmtebalans eerste week", y_title="Warmtevermogen [kWth]", explanation_key="heat_balance")
             st.dataframe(df.head(200))

@@ -15,6 +15,8 @@ from typing import Dict, Optional, Tuple
 STANDARD_OUTPUT_COLUMNS: Dict[str, Tuple[str, ...]] = {
     "electricity": (
         "P_electric_base_load_kW",
+        "P_heat_ref_el_kW",
+        "P_cool_el_kW",
         "P_hp_el_kW",
         "P_load_total_kW",
         "P_pv_kW",
@@ -35,6 +37,7 @@ STANDARD_OUTPUT_COLUMNS: Dict[str, Tuple[str, ...]] = {
         "Q_thermal_storage_discharge_kWth",
         "Q_boiler_th_kWth",
         "Q_dh_th_kWth",
+        "Q_heat_from_reference_kWth",
         "Q_heat_supply_total_kWth",
         "Q_heat_unserved_final_kWth",
         "heat_balance_residual_kWth",
@@ -380,6 +383,9 @@ class HeatSystemConfig:
     wkk_dispatch_mode: str = "electricity_led"
     thermal_storage_strategy: str = "passive"
     source_priority_mode: str = "prefer_hp_then_storage_then_boiler_then_dh"
+    reference_heating_enabled: bool = True
+    reference_cop_heat_by_season: Optional[Dict[str, float]] = None
+    reference_eer_cool_by_season: Optional[Dict[str, float]] = None
     allow_hp_for_space_heat: bool = True
     allow_hp_for_dhw: bool = False
     allow_boiler_for_space_heat: bool = True
@@ -1079,6 +1085,14 @@ def make_default_load_config(
             raise ValueError("heat_system.thermal_storage_strategy must not be empty")
         if heat_system.heat_balance_tolerance_kW < 0:
             raise ValueError("heat_system.heat_balance_tolerance_kW must be >= 0")
+        for label, values in (
+            ("reference_cop_heat_by_season", heat_system.reference_cop_heat_by_season),
+            ("reference_eer_cool_by_season", heat_system.reference_eer_cool_by_season),
+        ):
+            if values is not None:
+                for season, value in values.items():
+                    if float(value) <= 0:
+                        raise ValueError(f"heat_system.{label} must contain positive values (season={season}).")
 
     measurement = MeasurementConfig()
     if measurement_overrides:

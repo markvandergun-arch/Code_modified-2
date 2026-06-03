@@ -18,8 +18,12 @@ from ..evaluation.grid import evaluate_grid, add_grid_evaluation_columns
 
 
 PLOT_LABELS_NL = {
-    "P_heat_kW": "Verwarming",
-    "P_cool_kW": "Koeling",
+    "P_heat_kW": "Referentie elektrische verwarming",
+    "P_heat_ref_el_kW": "Referentie elektrische verwarming",
+    "P_cool_kW": "Elektrische koeling",
+    "P_cool_el_kW": "Elektrische koeling",
+    "Q_heat_kWth": "Warmtevraag",
+    "Q_cool_kWth": "Koelvraag",
     "P_elektro_kW": "Elektrisch verbruik",
     "P_process_kW": "Processen",
     "P_mobility_kW": "Mobiliteit laden",
@@ -127,28 +131,34 @@ def plot_week(
     title: str = "",
 ) -> plt.Figure:
     w = df.loc[week_index]
-    comp_cols = [
-        "P_heat_kW",
-        "P_cool_kW",
-        "P_elektro_kW",
-        "P_process_kW",
-        "P_mobility_kW",
-        "P_overig_kW",
-    ]
+    title_l = title.lower()
+    if ("warmtevraag" in title_l or "koelvraag" in title_l) and {"Q_heat_kWth", "Q_cool_kWth"}.issubset(w.columns):
+        comp_cols = ["Q_heat_kWth", "Q_cool_kWth"]
+        y_label = "Thermisch vermogen [kWth]"
+    else:
+        comp_cols = [
+            "P_heat_ref_el_kW",
+            "P_cool_el_kW",
+            "P_elektro_kW",
+            "P_process_kW",
+            "P_mobility_kW",
+            "P_overig_kW",
+        ]
+        y_label = "Vermogen [kW]"
     comp_cols = [c for c in comp_cols if c in w.columns]
     comps = [np.clip(w[c].to_numpy(dtype=float), 0.0, None) for c in comp_cols]
     fig, ax = plt.subplots(figsize=(12, 4))
     if comp_cols:
         ax.stackplot(w.index, comps, labels=[PLOT_LABELS_NL.get(c, c) for c in comp_cols], alpha=0.85)
     overlay_col = "P_load_total_kW" if "P_load_total_kW" in w.columns else "P_total_kW"
-    if overlay_col in w.columns:
+    if overlay_col in w.columns and not y_label.endswith("[kWth]"):
         ax.plot(w.index, w[overlay_col], linewidth=2.0, label=PLOT_LABELS_NL.get(overlay_col, overlay_col))
-    if "P_grid_import_kW" in w.columns:
+    if "P_grid_import_kW" in w.columns and not y_label.endswith("[kWth]"):
         ax.plot(w.index, w["P_grid_import_kW"], linewidth=1.6, label=PLOT_LABELS_NL["P_grid_import_kW"])
-    if grid_cap_kW is not None:
+    if grid_cap_kW is not None and not y_label.endswith("[kWth]"):
         ax.axhline(float(grid_cap_kW), linestyle="--", linewidth=1.5, label=f"Contractvermogen = {grid_cap_kW:.1f} kW")
     ax.set_title(title)
-    ax.set_ylabel("Vermogen [kW]")
+    ax.set_ylabel(y_label)
     ax.grid(True, alpha=0.2)
     ax.legend(loc="upper right", ncol=3, fontsize=8)
     _format_plot_time_axis(ax, w.index)
@@ -199,18 +209,31 @@ def _run_load_components(
     pelektro_subloads: Optional[List[Any]] = None,
     pprocess_subloads: Optional[List[Any]] = None,
     poverig_subloads: Optional[List[Any]] = None,
+    include_reference_heating: bool = True,
 ) -> tuple[pd.DataFrame, Optional[pd.DataFrame]]:
     if hasattr(gebouwmodel, "simulate_thermal_demand"):
         thermal_debug = gebouwmodel.simulate_thermal_demand(index, config.building, weather)
-        P_heat_kW = thermal_debug["P_heat_kW"]
-        P_cool_kW = thermal_debug["P_cool_kW"]
     else:
-        P_heat_kW, P_cool_kW, thermal_debug = gebouwmodel.simulate(index, config.building, weather)
+        _, _, thermal_debug = gebouwmodel.simulate(index, config.building, weather)
         thermal_debug = thermal_debug.copy()
         if "Q_heat_kWth" not in thermal_debug.columns:
-            thermal_debug["Q_heat_kWth"] = P_heat_kW
+            thermal_debug["Q_heat_kWth"] = 0.0
         if "Q_cool_kWth" not in thermal_debug.columns:
-            thermal_debug["Q_cool_kWth"] = P_cool_kW
+            thermal_debug["Q_cool_kWth"] = 0.0
+
+    q_heat = thermal_debug["Q_heat_kWth"].astype(float)
+    q_cool = thermal_debug["Q_cool_kWth"].astype(float)
+    ref_cop = _reference_cop_array(index, config)
+    ref_eer = _reference_eer_array(index, config)
+    P_heat_legacy_el_kW = pd.Series(q_heat.to_numpy(dtype=float) / ref_cop, index=index, dtype=float, name="P_heat_legacy_el_kW")
+    P_cool_el_kW = pd.Series(q_cool.to_numpy(dtype=float) / ref_eer, index=index, dtype=float, name="P_cool_el_kW")
+
+    reference_heating_enabled = bool(getattr(config.heat_system, "reference_heating_enabled", True))
+    if include_reference_heating and reference_heating_enabled:
+        P_heat_ref_el_kW = P_heat_legacy_el_kW.rename("P_heat_ref_el_kW")
+    else:
+        P_heat_ref_el_kW = pd.Series(0.0, index=index, dtype=float, name="P_heat_ref_el_kW")
+    P_cool_el_kW = P_cool_el_kW.rename("P_cool_el_kW")
 
     debug_df = thermal_debug if include_debug else None
 
@@ -235,8 +258,8 @@ def _run_load_components(
         name="P_overig_kW",
     )
     P_base_without_mobility_kW = (
-        P_heat_kW
-        + P_cool_kW
+        P_heat_ref_el_kW
+        + P_cool_el_kW
         + P_elektro_kW
         + P_process_kW
         + P_overig_kW
@@ -251,8 +274,11 @@ def _run_load_components(
 
     df = pd.DataFrame(
         {
-            "P_heat_kW": P_heat_kW,
-            "P_cool_kW": P_cool_kW,
+            "P_heat_kW": P_heat_ref_el_kW,
+            "P_heat_ref_el_kW": P_heat_ref_el_kW,
+            "P_heat_legacy_el_kW": P_heat_legacy_el_kW,
+            "P_cool_kW": P_cool_el_kW,
+            "P_cool_el_kW": P_cool_el_kW,
             "Q_heat_kWth": thermal_debug["Q_heat_kWth"],
             "Q_cool_kWth": thermal_debug["Q_cool_kWth"],
             "P_elektro_kW": P_elektro_kW,
@@ -290,7 +316,8 @@ def _run_load_components(
         + df["P_overig_kW"]
     )
     df["P_electric_base_load_kW"] = (
-        df["P_cool_kW"]
+        df["P_heat_ref_el_kW"]
+        + df["P_cool_el_kW"]
         + df["P_elektro_kW"]
         + df["P_process_kW"]
         + df["P_mobility_kW"]
@@ -308,6 +335,39 @@ def _series_or_zeros(df: pd.DataFrame, column: str) -> pd.Series:
     if column in df.columns:
         return df[column].astype(float).fillna(0.0)
     return pd.Series(0.0, index=df.index, dtype=float)
+
+
+def _seasonal_performance_array(index: pd.DatetimeIndex, season_map: Any, fallback_scalar: float) -> np.ndarray:
+    values = np.full(len(index), float(fallback_scalar), dtype=float)
+    if not season_map:
+        return np.clip(values, 0.1, None)
+
+    months = index.month.to_numpy()
+    masks = {
+        "winter": np.isin(months, [12, 1, 2]),
+        "spring": np.isin(months, [3, 4, 5]),
+        "summer": np.isin(months, [6, 7, 8]),
+        "autumn": np.isin(months, [9, 10, 11]),
+    }
+    normalized = {str(getattr(k, "value", k)).lower(): float(v) for k, v in dict(season_map).items()}
+    for season, mask in masks.items():
+        if season in normalized:
+            values[mask] = normalized[season]
+    return np.clip(values, 0.1, None)
+
+
+def _reference_cop_array(index: pd.DatetimeIndex, config: LoadConfig) -> np.ndarray:
+    season_map = getattr(config.heat_system, "reference_cop_heat_by_season", None)
+    if season_map is None:
+        season_map = getattr(config.building, "seasonal_cop_heat_by_season", None)
+    return _seasonal_performance_array(index, season_map, float(getattr(config.building, "cop_heat", 3.5)))
+
+
+def _reference_eer_array(index: pd.DatetimeIndex, config: LoadConfig) -> np.ndarray:
+    season_map = getattr(config.heat_system, "reference_eer_cool_by_season", None)
+    if season_map is None:
+        season_map = getattr(config.building, "seasonal_eer_cool_by_season", None)
+    return _seasonal_performance_array(index, season_map, float(getattr(config.building, "eer_cool", 3.0)))
 
 
 def _resolve_heat_priority_mode(config: LoadConfig) -> str:
@@ -421,9 +481,9 @@ def run_load_simulation(
         pprocess_subloads=pprocess_subloads,
         poverig_subloads=poverig_subloads,
     )
-    heat_peak_week = find_peak_week(df, "P_heat_kW", window_days=7)
-    cool_peak_week = find_peak_week(df, "P_cool_kW", window_days=7)
-    fig_heat = plot_week(df, heat_peak_week, grid_cap_kW=grid_cap_kW, title="Week met hoogste verwarmingsvraag")
+    heat_peak_week = find_peak_week(df, "Q_heat_kWth", window_days=7)
+    cool_peak_week = find_peak_week(df, "Q_cool_kWth", window_days=7)
+    fig_heat = plot_week(df, heat_peak_week, grid_cap_kW=grid_cap_kW, title="Week met hoogste warmtevraag")
     fig_cool = plot_week(df, cool_peak_week, grid_cap_kW=grid_cap_kW, title="Week met hoogste koelvraag")
     return df, fig_heat, fig_cool, debug_df
 
@@ -451,6 +511,7 @@ def run_energy_system_simulation(
         pelektro_subloads=pelektro_subloads,
         pprocess_subloads=pprocess_subloads,
         poverig_subloads=poverig_subloads,
+        include_reference_heating=False,
     )
 
     balance_df = load_df.copy()
@@ -541,6 +602,19 @@ def run_energy_system_simulation(
     else:
         final_unserved = remaining_after_hp
     balance_df["Q_heat_unserved_final_kWth"] = np.clip(final_unserved, 0.0, None)
+
+    if bool(getattr(config.heat_system, "reference_heating_enabled", True)):
+        ref_cop = _reference_cop_array(index, config)
+        q_ref_heat = balance_df["Q_heat_unserved_final_kWth"].to_numpy(dtype=float)
+        balance_df["Q_heat_from_reference_kWth"] = q_ref_heat
+        balance_df["P_heat_ref_el_kW"] = q_ref_heat / ref_cop
+        balance_df["P_heat_kW"] = balance_df["P_heat_ref_el_kW"]
+        balance_df["Q_heat_unserved_final_kWth"] = 0.0
+    else:
+        balance_df["Q_heat_from_reference_kWth"] = 0.0
+        balance_df["P_heat_ref_el_kW"] = 0.0
+        balance_df["P_heat_kW"] = 0.0
+
     balance_df["Q_heat_unserved_kWth"] = balance_df["Q_heat_unserved_final_kWth"]
 
     balance_df["Q_heat_supply_total_kWth"] = (
@@ -549,6 +623,7 @@ def run_energy_system_simulation(
         + balance_df["Q_heat_from_hp_kWth"]
         + balance_df["Q_heat_from_boiler_kWth"]
         + balance_df["Q_heat_from_dh_kWth"]
+        + balance_df["Q_heat_from_reference_kWth"]
     )
     balance_df["heat_balance_residual_kWth"] = (
         balance_df["Q_heat_demand_total_kWth"]
@@ -576,7 +651,7 @@ def run_energy_system_simulation(
     )
 
     # Final electrical balance after heat decisions
-    balance_df["P_load_total_kW"] = balance_df["P_load_base_electric_kW"] + balance_df["P_hp_kW"]
+    balance_df["P_load_total_kW"] = balance_df["P_load_base_electric_kW"] + balance_df["P_hp_kW"] + balance_df["P_heat_ref_el_kW"]
     balance_df["P_total_kW"] = balance_df["P_load_total_kW"]
     balance_df["P_generation_total_kW"] = balance_df[["P_pv_kW", "P_wkk_el_kW"]].sum(axis=1)
     balance_df["P_residual_before_battery_kW"] = balance_df["P_load_total_kW"] - balance_df["P_generation_total_kW"]
@@ -608,6 +683,7 @@ def run_energy_system_simulation(
         "annual_pv_kWh": float((balance_df["P_pv_kW"] * dt_h).sum()),
         "annual_wkk_el_kWh": float((balance_df["P_wkk_el_kW"] * dt_h).sum()),
         "annual_hp_el_kWh": float((balance_df["P_hp_kW"] * dt_h).sum()),
+        "annual_reference_heat_el_kWh": float((balance_df["P_heat_ref_el_kW"] * dt_h).sum()),
         "annual_grid_import_kWh": float((balance_df["P_grid_import_kW"] * dt_h).sum()),
         "annual_grid_export_kWh": float((balance_df["P_grid_export_kW"] * dt_h).sum()),
         "annual_battery_charge_kWh": float((balance_df["P_battery_charge_kW"] * dt_h).sum()),
@@ -620,6 +696,7 @@ def run_energy_system_simulation(
         "annual_storage_discharge_kWhth": float((balance_df["Q_heat_from_storage_kWth"] * dt_h).sum()),
         "annual_boiler_heat_kWhth": float((balance_df["Q_heat_from_boiler_kWth"] * dt_h).sum()),
         "annual_district_heat_kWhth": float((balance_df["Q_heat_from_dh_kWth"] * dt_h).sum()),
+        "annual_reference_heat_kWhth": float((balance_df["Q_heat_from_reference_kWth"] * dt_h).sum()),
         "annual_fuel_input_kWh": float((balance_df["F_total_fuel_kWh_per_h"] * dt_h).sum()),
         "annual_gas_input_kWh": float((balance_df["F_total_gas_kWh_per_h"] * dt_h).sum()),
         "peak_heat_demand_kWth": float(balance_df["Q_heat_demand_total_kWth"].max()),

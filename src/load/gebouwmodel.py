@@ -237,12 +237,13 @@ def simulate_thermal_demand(
     """
     Explicit thermal-demand model.
 
-    Returns a dataframe with thermal demand and derived electric-equivalent HVAC power.
-    This becomes the new source of truth for later multi-energy-carrier balancing.
+    Returns a dataframe with thermal demand and legacy electric-equivalent HVAC power.
+    The thermal columns are the source of truth for later multi-energy-carrier balancing.
 
     Columns:
       - Q_heat_kWth / Q_cool_kWth: explicit thermal demand
-      - P_heat_kW / P_cool_kW: temporary compatibility route based on COP/EER
+      - P_heat_kW / P_cool_kW: legacy compatibility route; total.py recalculates
+        explicit reference-installation electricity from Q_*_kWth.
       - regime / gains / weather diagnostics
     """
     if not isinstance(index, pd.DatetimeIndex):
