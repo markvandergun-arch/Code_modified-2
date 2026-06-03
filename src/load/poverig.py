@@ -86,11 +86,17 @@ def simulate(
     total_kW = np.zeros(len(index), dtype=float)
 
     for sl in subloads:
-        if sl.p_occ_W_per_m2 < 0 or sl.p_unocc_W_per_m2 < 0:
-            raise ValueError(f"Other subload '{sl.name}' has negative intensity; not allowed.")
+        # support both dataclass-style and dict-style subloads from the Streamlit UI
+        sl_name = sl.get("name", "other") if isinstance(sl, dict) else getattr(sl, "name", "other")
+        schedule = sl["schedule"] if isinstance(sl, dict) else sl.schedule
+        p_occ = sl["p_occ_W_per_m2"] if isinstance(sl, dict) else sl.p_occ_W_per_m2
+        p_unocc = sl["p_unocc_W_per_m2"] if isinstance(sl, dict) else sl.p_unocc_W_per_m2
 
-        on = _schedule_mask(index, sl.schedule)
-        p_W_per_m2 = np.where(on, float(sl.p_occ_W_per_m2), float(sl.p_unocc_W_per_m2))
+        if p_occ < 0 or p_unocc < 0:
+            raise ValueError(f"Other subload '{sl_name}' has negative intensity; not allowed.")
+
+        on = _schedule_mask(index, schedule)
+        p_W_per_m2 = np.where(on, float(p_occ), float(p_unocc))
         total_kW += (p_W_per_m2 * float(bvo_m2)) / 1000.0
 
     return pd.Series(total_kW, index=index, name=name)

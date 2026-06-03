@@ -94,6 +94,9 @@ def _ensure_weather(weather: Optional[pd.DataFrame], index: pd.DatetimeIndex) ->
     if weather["t_amb_C"].isna().any():
         raise ValueError("Kolom 't_amb_C' bevat lege/ongeldige waarden; die mogen niet synthetisch worden aangevuld.")
 
+    if "wind_ms" not in weather.columns and "wind_speed_mps" in weather.columns:
+        weather["wind_ms"] = weather["wind_speed_mps"]
+
     if "wind_ms" in weather.columns:
         weather["wind_ms"] = pd.to_numeric(weather["wind_ms"], errors="coerce")
         if weather["wind_ms"].isna().any():

@@ -35,6 +35,8 @@ def _resolve_cop(index: pd.DatetimeIndex, config, demand_df: pd.DataFrame) -> np
     # weather_dependent
     if "T_amb_C" in demand_df.columns:
         t_amb = demand_df["T_amb_C"].to_numpy(dtype=float)
+    elif "t_amb_C" in demand_df.columns:
+        t_amb = demand_df["t_amb_C"].to_numpy(dtype=float)
     else:
         t_amb = np.full(len(index), 7.0, dtype=float)
 

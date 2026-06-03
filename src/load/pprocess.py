@@ -80,11 +80,17 @@ def simulate(
     total_kW = np.zeros(len(index), dtype=float)
 
     for sl in subloads:
-        if sl.p_process_kW < 0 or sl.p_idle_kW < 0:
-            raise ValueError(f"Process '{sl.name}' has negative power; not allowed.")
+        # support both dataclass-style and dict-style subloads from the Streamlit UI
+        sl_name = sl.get("name", "process") if isinstance(sl, dict) else getattr(sl, "name", "process")
+        schedule = sl["schedule"] if isinstance(sl, dict) else sl.schedule
+        p_process = sl["p_process_kW"] if isinstance(sl, dict) else sl.p_process_kW
+        p_idle = sl["p_idle_kW"] if isinstance(sl, dict) else sl.p_idle_kW
 
-        on = _schedule_mask(index, sl.schedule)
-        p_k = np.where(on, float(sl.p_process_kW), float(sl.p_idle_kW))
+        if p_process < 0 or p_idle < 0:
+            raise ValueError(f"Process '{sl_name}' has negative power; not allowed.")
+
+        on = _schedule_mask(index, schedule)
+        p_k = np.where(on, float(p_process), float(p_idle))
         total_kW += p_k
 
     return pd.Series(total_kW, index=index, name=name)

@@ -402,8 +402,11 @@ def run_energy_system_simulation(
     )
 
     balance_df = load_df.copy()
-    if weather is not None and "T_amb_C" in weather.columns:
-        balance_df["T_amb_C"] = weather["T_amb_C"].reindex(index).astype(float)
+    if weather is not None:
+        if "T_amb_C" in weather.columns:
+            balance_df["T_amb_C"] = weather["T_amb_C"].reindex(index).astype(float)
+        elif "t_amb_C" in weather.columns:
+            balance_df["T_amb_C"] = weather["t_amb_C"].reindex(index).astype(float)
 
     pv_df = simulate_pv(index, config.pv, weather)
     balance_df = balance_df.join(pv_df, how="left")

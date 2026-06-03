@@ -192,7 +192,7 @@ def read_weather_excel(
         "Dry Bulb Temperature (C)": "t_amb_C",
         "Global Horizontal Radiation (Wh/m2)": "ghi_Wm2",
         "Relative Humidity (%)": "rh_pct",
-        "Wind Speed (m/s)": "wind_speed_mps",
+        "Wind Speed (m/s)": "wind_ms",
         "Wind Direction (Degrees)": "wind_dir_deg",
         "Direct Normal Radiation (Wh/m2)": "dni_Wm2",
         "Diffuse Horizontal Radiation (Wh/m2)": "dhi_Wm2",
