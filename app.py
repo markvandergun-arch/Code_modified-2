@@ -955,6 +955,12 @@ COLUMN_LABELS = {
     "P_grid_export_kW": "Teruglevering",
     "P_electric_load_kW": "Elektrisch verbruik gemeten",
     "F_gas_kW": "Gasvermogen",
+    "F_total_fuel_kW": "Brandstofinput",
+    "F_total_gas_kW": "Gasinput",
+    "F_wkk_fuel_kW": "WKK brandstof",
+    "F_wkk_gas_kW": "WKK gas",
+    "F_boiler_fuel_kW": "Ketel brandstof",
+    "F_boiler_gas_kW": "Ketel gas",
     "P_grid_contract_excess_kW": "Boven contract",
     "battery_soc_pct": "Vullingsgraad batterij",
     "Q_heat_demand_kWth": "Warmtevraag",
@@ -970,11 +976,11 @@ COLUMN_LABELS = {
 }
 
 PLOT_EXPLANATIONS = {
-    "building": "Deze grafiek toont de thermische warmtevraag en koelvraag van het gebouw in de eerste simulatie-week. De y-as is kWth: hogere pieken betekenen dat warmte- of koelinstallaties meer capaciteit moeten leveren.",
-    "electric": "Deze grafiek toont het elektrische basisverbruik in de eerste week. De y-as is vermogen in kW. Een hoge basislast verhoogt netimport en beperkt ruimte voor slim laden.",
-    "process": "Deze grafiek toont procesverbruik in de eerste week. Pieken geven momenten waarop processen veel elektrisch vermogen vragen.",
+    "building": "Deze grafiek toont de thermische warmtevraag en koelvraag van het gebouw in de getoonde periode. De y-as is kWth: hogere pieken betekenen dat warmte- of koelinstallaties meer capaciteit moeten leveren.",
+    "electric": "Deze grafiek toont het elektrische basisverbruik in de getoonde periode. De y-as is vermogen in kW. Een hoge basislast verhoogt netimport en beperkt ruimte voor slim laden.",
+    "process": "Deze grafiek toont procesverbruik in de getoonde periode. Pieken geven momenten waarop processen veel elektrisch vermogen vragen.",
     "mobility": "Deze grafiek toont het laadvermogen voor elektrische auto's. Bij slim laden blijft laden binnen de beschikbare contractruimte; een tekort betekent dat de gewenste vertreklading niet volledig gehaald wordt.",
-    "other": "Deze grafiek toont overige elektrische lasten. Dit is restverbruik dat meetelt in de totale basislast.",
+    "other": "Deze grafiek toont overige elektrische lasten in de getoonde periode. Dit is restverbruik dat meetelt in de totale basislast.",
     "load_total": "Deze grafiek combineert totaal elektrisch verbruik, elektrische koeling en eventuele referentie-elektrische verwarming. Gebruik dit om te zien welke elektrische componenten pieken veroorzaken.",
     "pv": "Deze grafiek toont de PV-opbrengst in kW. Richting, helling en vermogen bepalen wanneer en hoeveel zonnestroom beschikbaar is.",
     "wkk": "Deze grafiek toont elektrische en thermische WKK-productie. De regeling bepaalt wanneer de WKK draait en of die vooral stroom of warmte levert.",
@@ -982,7 +988,10 @@ PLOT_EXPLANATIONS = {
     "grid_week": "Deze grafiek toont de zwaarste netweek. De y-as is vermogen in kW; de contractlijn laat zien wanneer netcapaciteit krap wordt.",
     "duration": "Deze duurcurve sorteert netimport van hoog naar laag. Links staan de hoogste pieken; hoe breder de curve boven contract ligt, hoe structureler het knelpunt.",
     "heat_balance": "Deze grafiek toont hoe warmtevraag wordt ingevuld door warmtepomp, WKK, ketel, warmtenet en opslag. Ongedekte warmte wijst op onvoldoende warmtecapaciteit.",
+    "gas_week": "Deze grafiek toont de week met de hoogste gas- of brandstofvraag. De y-as is vermogen in kW; pieken wijzen op momenten waarop gasloos maken extra warmtecapaciteit, opslag of elektrische ruimte vraagt.",
     "battery_soc": "Deze grafiek toont de vullingsgraad van de batterij. Een vaak lege batterij kan pieken niet verlagen; een vaak volle batterij kan overschot niet opnemen.",
+    "monthly_energy": "Deze grafiek toont maandtotalen. Hiermee zie je seizoenseffecten duidelijker dan in losse weekgrafieken, bijvoorbeeld winterse warmtevraag of zomerse PV-opwek.",
+    "load_match": "Deze grafiek toont hoe lokale opwek, verbruik, netimport en teruglevering zich tot elkaar verhouden. Veel netimport wijst op tekort aan lokale opwek op dat moment; veel teruglevering wijst op overschot dat mogelijk met opslag of sturing benut kan worden.",
     "validation": "Deze grafiek vergelijkt simulatie met meetdata. Grote verschillen wijzen op ontbrekende aannames, verkeerde meeteenheid of een modelinstelling die moet worden bijgesteld.",
 }
 
@@ -1041,12 +1050,55 @@ def _fmt_kpi(value, unit: str = "", decimals: int = 0) -> str:
     return f"{text} {unit}".strip()
 
 
-def render_kpi_row(items: list[tuple[str, object, str, int]], columns: int | None = None) -> None:
+KPI_HELP_TEXTS = {
+    "Jaarverbruik elektriciteit": "Wat: totale elektrische energie over het jaar. In het model: som van alle elektrische vermogens maal de tijdstap. Effect: hogere elektrische lasten vragen meer netcapaciteit of lokale opwek.",
+    "Elektriciteitsintensiteit": "Wat: jaarverbruik elektriciteit gedeeld door vloeroppervlak. In het model: kWh per m². Effect: handig om gebouwen eerlijker te vergelijken; een hoge waarde wijst op intensief gebruik of inefficiëntie.",
+    "Piek totaal verbruik": "Wat: hoogste momentane elektrische vraag van alle gebruikers samen. In het model: maximum van de totale load. Effect: bepaalt mede of de aansluiting groot genoeg is.",
+    "Jaarlijkse warmtevraag": "Wat: totale nuttige warmte die het gebouw nodig heeft. In het model: som van de thermische warmtevraag. Effect: bepaalt hoeveel warmtepomp-, ketel-, WKK- of warmtenetcapaciteit nodig is.",
+    "Warmtevraag": "Wat: nuttige warmte die het gebouw vraagt. In het model: thermische vraag vóór omzetting naar elektriciteit of brandstof. Effect: hogere warmtevraag maakt gasloosheid en netruimte lastiger.",
+    "Piek warmtevraag": "Wat: hoogste thermische warmtevraag. In het model: maximum van de warmtevraag in kWth. Effect: bepaalt de benodigde capaciteit van warmtebronnen.",
+    "Jaarlijkse koelvraag": "Wat: totale nuttige koeling die het gebouw nodig heeft. In het model: thermische koelvraag, daarna omgerekend naar elektriciteit via EER. Effect: hogere koelvraag verhoogt vooral zomerse elektriciteitspieken.",
+    "Piek koelvraag": "Wat: hoogste thermische koelvraag. In het model: maximum van de koelvraag in kWth. Effect: bepaalt de benodigde koelcapaciteit en elektrische piekbelasting.",
+    "Jaaropwek PV": "Wat: totale jaaropbrengst van zonnepanelen. In het model: PV-vermogen maal tijdstap, afhankelijk van vermogen, richting, helling en weer. Effect: meer PV verlaagt netimport maar kan ook teruglevering verhogen.",
+    "Jaaropwek WKK": "Wat: totale elektrische jaaropwek van de WKK. In het model: dispatch volgens de gekozen WKK-regeling. Effect: kan netimport verlagen, maar gebruikt brandstof en levert ook warmte.",
+    "Piekvermogen PV": "Wat: hoogste berekende PV-vermogen. In het model: maximum van de PV-tijdreeks. Effect: bepaalt hoeveel lokale opwek op zonnige momenten beschikbaar is.",
+    "Piek WKK elektrisch": "Wat: hoogste elektrische WKK-output. In het model: begrensd door WKK-vermogen en regeling. Effect: kan pieken verlagen, maar beïnvloedt brandstofgebruik.",
+    "Piek WKK warmte": "Wat: hoogste thermische WKK-output. In het model: gekoppeld aan elektrische WKK-output en thermisch rendement. Effect: helpt warmtevraag dekken, vooral als de regeling warmtevraag volgt.",
+    "Netimport": "Wat: vermogen of energie uit het elektriciteitsnet. In het model: resterende vraag na lokale opwek en opslag. Effect: hoge waarden bepalen netcapaciteitsknelpunten.",
+    "Jaarlijkse netimport": "Wat: totale elektriciteit uit het net over het jaar. In het model: som van positieve netafname. Effect: laat zien hoeveel energie nog extern nodig is.",
+    "Piek netimport": "Wat: hoogste momentane afname uit het net. In het model: maximum na opwek en batterij. Effect: belangrijkste indicator voor contractvermogen.",
+    "Teruglevering": "Wat: elektriciteit die niet lokaal wordt gebruikt en terug het net op gaat. In het model: overschot na vraag en opslag. Effect: veel teruglevering kan wijzen op batterij- of sturingspotentieel.",
+    "Ongedekte warmte": "Wat: warmtevraag die niet door installaties wordt geleverd. In het model: resterende warmte na warmtepomp, WKK, ketel, warmtenet, opslag en referentie. Effect: moet nul of acceptabel laag zijn voor een haalbaar scenario.",
+    "Gas-/brandstofinput": "Wat: totale brandstofenergie voor ketel en WKK. In het model: som van brandstofstromen. Effect: voor gasloosheid moet fossiele gasinput naar nul.",
+    "Zelfvoorziening": "Wat: aandeel elektriciteitsvraag dat niet via netimport hoeft te komen. In het model: 1 min netimport gedeeld door totale elektrische vraag. Effect: hoger betekent betere lokale dekking, maar zegt niet alles over pieken.",
+    "Mobiliteit laden": "Wat: energie voor elektrische auto's. In het model: laadprofiel op basis van aantal auto's, batterij, SoC en laadmodus. Effect: kan pieken veroorzaken of via slim laden worden begrensd.",
+    "Warmtepomp elektriciteit": "Wat: elektriciteit die de warmtepomp gebruikt. In het model: geleverde warmte gedeeld door COP. Effect: gasloos verwarmen verlaagt brandstofgebruik maar verhoogt elektrische vraag.",
+    "Referentieverwarming elektriciteit": "Wat: fallback-elektriciteit voor resterende warmtevraag. In het model: resterende warmte gedeeld door referentie-COP. Effect: voorkomt ongedekte warmte, maar kan netpieken verhogen.",
+    "Elektrische koeling": "Wat: elektriciteit voor koeling. In het model: koelvraag gedeeld door EER. Effect: beïnvloedt vooral warme perioden en zomerse pieken.",
+    "Benuttingsgraad": "Wat: gemiddelde netimport gedeeld door piek netimport. In het model: maat voor hoe vlak of piekerig de netvraag is. Effect: lage waarde betekent dat korte pieken de aansluiting domineren.",
+}
+
+
+def render_kpi_help(label: str, explicit: str | None = None) -> str | None:
+    if explicit:
+        return explicit
+    label_norm = str(label).strip()
+    if label_norm in KPI_HELP_TEXTS:
+        return KPI_HELP_TEXTS[label_norm]
+    for key, text in KPI_HELP_TEXTS.items():
+        if key.lower() in label_norm.lower():
+            return text
+    return None
+
+
+def render_kpi_row(items: list[tuple], columns: int | None = None) -> None:
     if not items:
         return
     cols = st.columns(columns or min(len(items), 4))
-    for col, (label, value, unit, decimals) in zip(cols, items):
-        col.metric(label, _fmt_kpi(value, unit, decimals))
+    for col, item in zip(cols, items):
+        label, value, unit, decimals = item[:4]
+        help_text = render_kpi_help(label, item[4] if len(item) > 4 else None)
+        col.metric(label, _fmt_kpi(value, unit, decimals), help=help_text)
 
 
 def annual_sum(df: pd.DataFrame, column: str) -> float:
@@ -1129,6 +1181,7 @@ STORAGE_CATEGORIES = [
 ]
 
 SEASON_ORDER = ["Winter", "Lente", "Zomer", "Herfst"]
+MONTH_ORDER = ["Jan", "Feb", "Mrt", "Apr", "Mei", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"]
 
 
 def _positive_categories(df: pd.DataFrame, mapping: list[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -1166,6 +1219,27 @@ def seasonal_energy_by_category(df: pd.DataFrame, mapping: list[tuple[str, str]]
         grouped = energy.groupby(seasons).sum()
         for season in SEASON_ORDER:
             rows.append({"seizoen": season, "categorie": label, "energie_kWh": float(grouped.get(season, 0.0))})
+    return pd.DataFrame(rows)
+
+
+def monthly_energy_by_category(df: pd.DataFrame, mapping: list[tuple[str, str]]) -> pd.DataFrame:
+    rows = []
+    if df.empty:
+        return pd.DataFrame(rows)
+    dt_h = series_dt_hours(df)
+    month_numbers = pd.Series(df.index.month, index=df.index)
+    for label, column in _positive_categories(df, mapping):
+        energy = df[column].clip(lower=0.0) * dt_h
+        grouped = energy.groupby(month_numbers).sum()
+        for month_number, month_label in enumerate(MONTH_ORDER, start=1):
+            rows.append(
+                {
+                    "maand_nummer": month_number,
+                    "maand": month_label,
+                    "categorie": label,
+                    "energie_kWh": float(grouped.get(month_number, 0.0)),
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -1229,6 +1303,55 @@ def render_stacked_bar_chart(title: str, data: pd.DataFrame, *, x_col: str = "se
         .interactive()
     )
     st.altair_chart(chart, width='stretch')
+
+
+def render_monthly_stacked_bar_chart(title: str, data: pd.DataFrame, *, unit: str = "kWh") -> None:
+    if data.empty:
+        st.info(f"Geen data beschikbaar voor {title.lower()}.")
+        return
+    st.markdown(f"**{title}**")
+    chart = (
+        alt.Chart(data)
+        .mark_bar()
+        .encode(
+            x=alt.X("maand:N", title="Maand", sort=MONTH_ORDER),
+            y=alt.Y("energie_kWh:Q", stack=True, title=f"Energie [{unit}]"),
+            color=alt.Color("categorie:N", title="Categorie"),
+            tooltip=[
+                alt.Tooltip("maand:N", title="Maand"),
+                "categorie:N",
+                alt.Tooltip("energie_kWh:Q", format=",.0f", title=f"Energie [{unit}]"),
+            ],
+        )
+        .interactive()
+    )
+    st.altair_chart(chart, width='stretch')
+    render_plot_explanation("monthly_energy")
+
+
+def render_grouped_monthly_energy_chart(title: str, data: pd.DataFrame, *, unit: str = "kWh") -> None:
+    if data.empty:
+        st.info(f"Geen data beschikbaar voor {title.lower()}.")
+        return
+    st.markdown(f"**{title}**")
+    chart = (
+        alt.Chart(data)
+        .mark_bar()
+        .encode(
+            x=alt.X("maand:N", title="Maand", sort=MONTH_ORDER),
+            xOffset=alt.XOffset("categorie:N", title="Categorie"),
+            y=alt.Y("energie_kWh:Q", title=f"Energie [{unit}]"),
+            color=alt.Color("categorie:N", title="Categorie"),
+            tooltip=[
+                alt.Tooltip("maand:N", title="Maand"),
+                "categorie:N",
+                alt.Tooltip("energie_kWh:Q", format=",.0f", title=f"Energie [{unit}]"),
+            ],
+        )
+        .interactive()
+    )
+    st.altair_chart(chart, width='stretch')
+    render_plot_explanation("monthly_energy")
 
 
 def render_stacked_area_chart(title: str, data: pd.DataFrame, *, unit: str = "kW") -> None:
@@ -1300,6 +1423,41 @@ def render_daily_stacked_area_chart(title: str, data: pd.DataFrame, *, unit: str
     st.altair_chart(chart, width='stretch')
 
 
+def render_peak_week_chart(
+    df: pd.DataFrame,
+    peak_column: str,
+    cols: list[str],
+    title: str,
+    *,
+    y_title: str = "Vermogen [kW]",
+    explanation_key: str | None = None,
+    context: str | None = None,
+) -> None:
+    if df.empty or peak_column not in df.columns:
+        return
+    week = df.loc[find_peak_week(df, peak_column)].copy()
+    render_timeseries_plot(week, cols, title, y_title=y_title, explanation_key=explanation_key, context=context)
+
+
+def find_highest_energy_week(df: pd.DataFrame, column: str, *, window_days: int = 7) -> pd.DatetimeIndex:
+    if column not in df.columns:
+        return pd.DatetimeIndex([])
+    idx = df.index
+    if not isinstance(idx, pd.DatetimeIndex) or len(idx) < 2:
+        return idx
+    dt = idx[1] - idx[0]
+    window_len = max(int(window_days * pd.Timedelta(days=1) / dt), 1)
+    values = df[column].fillna(0.0).clip(lower=0.0).to_numpy(dtype=float)
+    best_i = 0
+    best_sum = -1.0
+    for i in range(0, max(len(values) - window_len + 1, 1)):
+        total = float(values[i : i + window_len].sum())
+        if total > best_sum:
+            best_sum = total
+            best_i = i
+    return idx[best_i : best_i + window_len]
+
+
 def render_peak_grid_week_interactive(df: pd.DataFrame, contract_kW: float | None) -> None:
     if df.empty or "P_grid_import_kW" not in df.columns:
         return
@@ -1319,12 +1477,16 @@ def render_peak_grid_week_interactive(df: pd.DataFrame, contract_kW: float | Non
     ]
     available = [c for c in cols if c in week.columns]
     plot_df = week[available].reset_index().rename(columns={"index": "timestamp"})
-    long_df = plot_df.melt(id_vars="timestamp", var_name="serie", value_name="vermogen_kW")
-    long_df["serie"] = long_df["serie"].map(lambda c: COLUMN_LABELS.get(c, c))
+    focus_col = "P_grid_import_kW"
+    focus_df = plot_df[["timestamp", focus_col]].rename(columns={focus_col: "vermogen_kW"})
+    focus_df["serie"] = COLUMN_LABELS.get(focus_col, focus_col)
+    context_cols = [c for c in available if c != focus_col]
+    context_long = plot_df[["timestamp"] + context_cols].melt(id_vars="timestamp", var_name="serie", value_name="vermogen_kW")
+    context_long["serie"] = context_long["serie"].map(lambda c: COLUMN_LABELS.get(c, c))
 
-    base = (
-        alt.Chart(long_df)
-        .mark_line(strokeWidth=2)
+    context_layer = (
+        alt.Chart(context_long)
+        .mark_line(strokeWidth=1.4, opacity=0.62)
         .encode(
             x=alt.X("timestamp:T", title="Tijd"),
             y=alt.Y("vermogen_kW:Q", title="Vermogen [kW]"),
@@ -1332,12 +1494,21 @@ def render_peak_grid_week_interactive(df: pd.DataFrame, contract_kW: float | Non
             tooltip=["timestamp:T", "serie:N", alt.Tooltip("vermogen_kW:Q", format=",.1f")],
         )
     )
-    layers = [base]
+    focus_layer = (
+        alt.Chart(focus_df)
+        .mark_line(strokeWidth=4.2, color="#0B5FFF")
+        .encode(
+            x=alt.X("timestamp:T", title="Tijd"),
+            y=alt.Y("vermogen_kW:Q", title="Vermogen [kW]"),
+            tooltip=["timestamp:T", "serie:N", alt.Tooltip("vermogen_kW:Q", format=",.1f", title="Netimport [kW]")],
+        )
+    )
+    layers = [context_layer, focus_layer]
     if contract_kW is not None:
         contract_df = pd.DataFrame({"timestamp": plot_df["timestamp"], "contract_kW": float(contract_kW)})
         layers.append(
             alt.Chart(contract_df)
-            .mark_line(color="red", strokeDash=[6, 4], strokeWidth=2)
+            .mark_line(color="#D62728", strokeDash=[6, 4], strokeWidth=2.2)
             .encode(x="timestamp:T", y=alt.Y("contract_kW:Q", title="Vermogen [kW]"))
         )
     st.markdown("**Zwaarste netweek**")
@@ -1351,6 +1522,168 @@ def render_heat_week_interactive(df: pd.DataFrame) -> None:
     week = df.loc[find_peak_week(df, "Q_heat_demand_kWth")].copy()
     cols = [c for c in ["Q_heat_demand_kWth", "Q_hp_th_kWth", "Q_wkk_used_kWth", "Q_boiler_th_kWth", "Q_dh_th_kWth", "Q_heat_from_reference_kWth", "Q_thermal_storage_discharge_kWth", "Q_heat_unserved_final_kWth"] if c in week.columns]
     render_timeseries_plot(week, cols, "Zwaarste warmteweek", y_title="Warmtevermogen [kWth]", explanation_key="heat_balance")
+
+
+def render_peak_gas_week_interactive(df: pd.DataFrame) -> None:
+    st.markdown("**Zwaarste gasweek**")
+    gas_col = "F_total_gas_kW" if "F_total_gas_kW" in df.columns and float(df["F_total_gas_kW"].fillna(0.0).sum()) > 1e-9 else "F_total_fuel_kW"
+    if df.empty or gas_col not in df.columns or float(df[gas_col].fillna(0.0).sum()) <= 1e-9:
+        st.info("Geen gas- of brandstofvraag aanwezig in deze simulatie.")
+        return
+    cols = [c for c in [gas_col, "F_wkk_gas_kW", "F_boiler_gas_kW", "F_wkk_fuel_kW", "F_boiler_fuel_kW"] if c in df.columns]
+    week = df.loc[find_highest_energy_week(df, gas_col)].copy()
+    render_timeseries_plot(week, cols, "Gas-/brandstofprofiel", y_title="Gas-/brandstofvermogen [kW]", explanation_key="gas_week")
+
+
+def render_load_match_balance_charts(df: pd.DataFrame) -> None:
+    balance_mapping = [
+        ("Totaal verbruik", "P_load_total_kW"),
+        ("Lokale opwek", "P_generation_total_kW"),
+        ("Netimport", "P_grid_import_kW"),
+        ("Teruglevering", "P_grid_export_kW"),
+    ]
+    render_grouped_monthly_energy_chart("Maandelijkse energiebalans", monthly_energy_by_category(df, balance_mapping))
+
+    flow_data = daily_energy_by_category(
+        df,
+        [
+            ("Netimport", "P_grid_import_kW"),
+            ("Teruglevering", "P_grid_export_kW"),
+        ],
+    )
+    load_data = daily_energy_by_category(df, [("Totaal verbruik", "P_load_total_kW")])
+    if flow_data.empty and load_data.empty:
+        st.info("Geen data beschikbaar voor dagelijkse netafhankelijkheid.")
+        return
+
+    st.markdown("**Dagelijkse netafhankelijkheid**")
+    layers = []
+    if not flow_data.empty:
+        layers.append(
+            alt.Chart(flow_data)
+            .mark_bar(opacity=0.75)
+            .encode(
+                x=alt.X("datum:T", title="Datum"),
+                y=alt.Y("energie_kWh:Q", title="Energie [kWh/dag]"),
+                color=alt.Color("categorie:N", title="Categorie"),
+                tooltip=[
+                    "datum:T",
+                    "categorie:N",
+                    alt.Tooltip("energie_kWh:Q", format=",.0f", title="Energie [kWh/dag]"),
+                ],
+            )
+        )
+    if not load_data.empty:
+        load_line = load_data.copy()
+        load_line["categorie"] = "Totaal verbruik"
+        layers.append(
+            alt.Chart(load_line)
+            .mark_line(strokeWidth=2.4, color="#3D3D3D")
+            .encode(
+                x=alt.X("datum:T", title="Datum"),
+                y=alt.Y("energie_kWh:Q", title="Energie [kWh/dag]"),
+                tooltip=[
+                    "datum:T",
+                    "categorie:N",
+                    alt.Tooltip("energie_kWh:Q", format=",.0f", title="Totaal verbruik [kWh/dag]"),
+                ],
+            )
+        )
+    st.altair_chart(alt.layer(*layers).interactive(), width='stretch')
+    render_plot_explanation("load_match")
+
+
+def render_load_calculation_results(df: pd.DataFrame) -> None:
+    st.markdown("### Verbruiksoverzicht")
+    render_kpi_row(
+        [
+            ("Jaarverbruik elektriciteit", annual_sum(df, "P_load_total_kW"), "kWh", 0),
+            ("Elektriciteitsintensiteit", intensity_per_m2(annual_sum(df, "P_load_total_kW")), "kWh/m²", 1),
+            ("Piek totaal verbruik", peak_value(df, "P_load_total_kW"), "kW", 1),
+            ("Mobiliteit laden", annual_sum(df, "P_mobility_kW"), "kWh", 0),
+        ]
+    )
+    render_kpi_row(
+        [
+            ("Jaarlijkse warmtevraag", annual_sum(df, "Q_heat_kWth"), "kWhth", 0),
+            ("Warmte-intensiteit", intensity_per_m2(annual_sum(df, "Q_heat_kWth")), "kWhth/m²", 1),
+            ("Jaarlijkse koelvraag", annual_sum(df, "Q_cool_kWth"), "kWhth", 0),
+            ("Piek koelvraag", peak_value(df, "Q_cool_kWth"), "kWth", 1),
+        ]
+    )
+
+    st.markdown("### Piekweken")
+    render_peak_week_chart(
+        df,
+        "Q_heat_kWth",
+        ["Q_heat_kWth", "Q_hp_th_kWth", "Q_heat_from_reference_kWth", "Q_boiler_th_kWth", "Q_dh_th_kWth"],
+        "Week met hoogste warmtevraag",
+        y_title="Warmtevermogen [kWth]",
+        explanation_key="heat_balance",
+    )
+    render_peak_week_chart(
+        df,
+        "Q_cool_kWth",
+        ["Q_cool_kWth", "P_cool_el_kW"],
+        "Week met hoogste koelvraag",
+        y_title="Koelvraag [kWth] / elektriciteit [kW]",
+        explanation_key="building",
+        context="Koelvraag is thermisch; elektrische koeling wordt via de referentie-EER omgerekend.",
+    )
+    render_peak_week_chart(
+        df,
+        "P_load_total_kW",
+        ["P_load_total_kW", "P_elektro_kW", "P_process_kW", "P_mobility_kW", "P_cool_el_kW", "P_hp_el_kW", "P_heat_ref_el_kW", "P_overig_kW"],
+        "Week met hoogste elektriciteitsvraag",
+        y_title="Vermogen [kW]",
+        explanation_key="load_total",
+        context="Deze grafiek toont de elektrische impact van verwarming via warmtepomp of referentieverwarming, plus koeling via EER.",
+    )
+
+    st.markdown("### Jaar- En Maandprofiel")
+    render_daily_stacked_area_chart(
+        "Gebruikte energie per dag",
+        daily_energy_by_category(df, ELECTRIC_CONSUMPTION_CATEGORIES),
+    )
+    c_load_mix1, c_load_mix2 = st.columns(2)
+    with c_load_mix1:
+        render_donut_chart("Jaarmix verbruik", annual_energy_by_category(df, ELECTRIC_CONSUMPTION_CATEGORIES))
+    with c_load_mix2:
+        render_monthly_stacked_bar_chart("Maandverbruik", monthly_energy_by_category(df, ELECTRIC_CONSUMPTION_CATEGORIES))
+
+    heat_electric_mapping = [
+        ("Warmtepomp elektriciteit", "P_hp_el_kW"),
+        ("Referentieverwarming elektriciteit", "P_heat_ref_el_kW"),
+        ("Elektrische koeling", "P_cool_el_kW"),
+    ]
+    heat_electric = monthly_energy_by_category(df, heat_electric_mapping)
+    if not heat_electric.empty:
+        render_monthly_stacked_bar_chart("Elektrische impact van warmte en koeling", heat_electric)
+
+    with st.expander("Resultaatdata bekijken", expanded=False):
+        st.dataframe(df.head(200))
+
+
+def render_generation_calculation_results(df: pd.DataFrame) -> None:
+    st.markdown("### Opwekoverzicht")
+    render_kpi_row(
+        [
+            ("Piek totale opwek", peak_value(df, "P_generation_total_kW"), "kW", 1),
+            ("Jaaropwek PV", annual_sum(df, "P_pv_kW"), "kWh", 0),
+            ("Jaaropwek WKK", annual_sum(df, "P_wkk_el_kW"), "kWh", 0),
+            ("Piek netimport", peak_value(df, "P_grid_import_kW"), "kW", 1),
+        ]
+    )
+    render_daily_stacked_area_chart(
+        "Opgewekte energie per dag",
+        daily_energy_by_category(df, GENERATION_CATEGORIES),
+    )
+    c_gen_mix1, c_gen_mix2 = st.columns(2)
+    with c_gen_mix1:
+        render_donut_chart("Jaarmix opwek", annual_energy_by_category(df, [("Zonnepanelen", "P_pv_kW"), ("WKK elektrisch", "P_wkk_el_kW")]))
+    with c_gen_mix2:
+        render_monthly_stacked_bar_chart("Maandopwek", monthly_energy_by_category(df, [("Zonnepanelen", "P_pv_kW"), ("WKK elektrisch", "P_wkk_el_kW")]))
+    render_load_match_balance_charts(df)
 
 def plot_peak_grid_import_week_stacked(
     df: pd.DataFrame,
@@ -1854,7 +2187,7 @@ def render_results_dashboard(df: pd.DataFrame, contract: float | None, cfg=None)
     with c_mix1:
         render_donut_chart("Jaarmix verbruik", annual_energy_by_category(df, ELECTRIC_CONSUMPTION_CATEGORIES))
     with c_mix2:
-        render_stacked_bar_chart("Seizoensverbruik", seasonal_energy_by_category(df, ELECTRIC_CONSUMPTION_CATEGORIES))
+        render_monthly_stacked_bar_chart("Maandverbruik", monthly_energy_by_category(df, ELECTRIC_CONSUMPTION_CATEGORIES))
 
     st.markdown("### 6. Opwek En Load Match")
     pv_year = annual_sum(df, "P_pv_kW")
@@ -1871,19 +2204,8 @@ def render_results_dashboard(df: pd.DataFrame, contract: float | None, cfg=None)
     with c_gen1:
         render_donut_chart("Jaarmix opwek", annual_energy_by_category(df, [("Zonnepanelen", "P_pv_kW"), ("WKK elektrisch", "P_wkk_el_kW")]))
     with c_gen2:
-        render_stacked_bar_chart("Seizoensopwek", seasonal_energy_by_category(df, [("Zonnepanelen", "P_pv_kW"), ("WKK elektrisch", "P_wkk_el_kW")]))
-    render_daily_energy_chart(
-        "Dagelijkse load match",
-        daily_energy_by_category(
-            df,
-            [
-                ("Totaal verbruik", "P_load_total_kW"),
-                ("Lokale opwek", "P_generation_total_kW"),
-                ("Netimport", "P_grid_import_kW"),
-                ("Teruglevering", "P_grid_export_kW"),
-            ],
-        ),
-    )
+        render_monthly_stacked_bar_chart("Maandopwek", monthly_energy_by_category(df, [("Zonnepanelen", "P_pv_kW"), ("WKK elektrisch", "P_wkk_el_kW")]))
+    render_load_match_balance_charts(df)
 
     st.markdown("### 7. Warmte En Gasloosheid")
     heat_total = float(kpis.get("Jaarlijkse warmtevraag [kWhth]", 0.0) or 0.0)
@@ -1897,8 +2219,9 @@ def render_results_dashboard(df: pd.DataFrame, contract: float | None, cfg=None)
             ("Indicatie gasloos geleverd", gasless_share, "%", 1),
         ]
     )
-    render_stacked_bar_chart("Warmtebalans per seizoen", seasonal_energy_by_category(df, HEAT_SUPPLY_CATEGORIES), unit="kWhth")
+    render_monthly_stacked_bar_chart("Warmtebalans per maand", monthly_energy_by_category(df, HEAT_SUPPLY_CATEGORIES), unit="kWhth")
     render_heat_week_interactive(df)
+    render_peak_gas_week_interactive(df)
 
     st.markdown("### 8. Opslag En Flexibiliteit")
     render_kpi_row(
@@ -1909,9 +2232,9 @@ def render_results_dashboard(df: pd.DataFrame, contract: float | None, cfg=None)
             ("Teruglevering", kpis.get("Jaarlijkse teruglevering [kWh]"), "kWh", 0),
         ]
     )
-    storage_seasonal = seasonal_energy_by_category(df, STORAGE_CATEGORIES)
-    if not storage_seasonal.empty:
-        render_stacked_bar_chart("Opslagstromen per seizoen", storage_seasonal)
+    storage_monthly = monthly_energy_by_category(df, STORAGE_CATEGORIES)
+    if not storage_monthly.empty:
+        render_monthly_stacked_bar_chart("Opslagstromen per maand", storage_monthly)
     if "battery_soc_pct" in df.columns:
         worst_week_idx = find_worst_grid_week(df)
         if len(worst_week_idx) > 0:
@@ -2341,7 +2664,7 @@ with load_tab:
     with t_run:
         if st.button("Bereken verbruik", type="primary", help="Wat: start de verbruiksberekening. In het model worden gebouw, elektrische lasten, processen en mobiliteit samengevoegd. Effect: resultaten worden vernieuwd met de huidige instellingen."):
             cfg = build_cfg()
-            df, fig_heat, fig_cool, _ = run_load_simulation(
+            df, _fig_heat, _fig_balance, _ = run_energy_system_simulation(
                 cfg,
                 weather=WEATHER_DF,
                 grid_cap_kW=safe_contract_value(st.session_state.get("grid_cap_kW")),
@@ -2350,31 +2673,9 @@ with load_tab:
                 poverig_subloads=subload_payload("poverig_subloads", "occ"),
             )
             st.session_state["last_load_df"] = df
-            render_kpi_row(
-                [
-                    ("Jaarverbruik elektriciteit", annual_sum(df, "P_load_total_kW"), "kWh", 0),
-                    ("Elektriciteitsintensiteit", intensity_per_m2(annual_sum(df, "P_load_total_kW")), "kWh/m²", 1),
-                    ("Piek totaal verbruik", peak_value(df, "P_load_total_kW"), "kW", 1),
-                    ("Mobiliteit laden", annual_sum(df, "P_mobility_kW"), "kWh", 0),
-                ]
-            )
-            render_kpi_row(
-                [
-                    ("Jaarlijkse warmtevraag", annual_sum(df, "Q_heat_kWth"), "kWhth", 0),
-                    ("Warmte-intensiteit", intensity_per_m2(annual_sum(df, "Q_heat_kWth")), "kWhth/m²", 1),
-                    ("Jaarlijkse koelvraag", annual_sum(df, "Q_cool_kWth"), "kWhth", 0),
-                    ("Piek koelvraag", peak_value(df, "Q_cool_kWth"), "kWth", 1),
-                ]
-            )
-            st.pyplot(fig_heat, clear_figure=True)
-            render_plot_explanation("building")
-            st.pyplot(fig_cool, clear_figure=True)
-            render_plot_explanation("building")
-            with st.expander("Resultaatdata bekijken", expanded=False):
-                st.dataframe(df.head(200))
 
         if st.session_state["last_load_df"] is not None:
-            preview_week_chart(st.session_state["last_load_df"], ["P_load_total_kW", "P_heat_ref_el_kW", "P_cool_el_kW"], "Laatste verbruiksberekening", "load_total")
+            render_load_calculation_results(st.session_state["last_load_df"])
 
 
 with generation_tab:
@@ -2491,19 +2792,7 @@ with generation_tab:
             poverig_subloads=subload_payload("poverig_subloads", "occ"),
         )
         st.session_state["last_generation_df"] = gen_df
-
-        cols = [c for c in ["P_pv_kW", "P_wkk_el_kW", "P_generation_total_kW", "P_battery_charge_kW", "P_battery_discharge_kW", "P_grid_import_kW"] if c in gen_df.columns]
-        if cols:
-            render_timeseries_plot(gen_df, cols, "Voorbeeld opwek en netimport", explanation_key="generation")
-
-        render_kpi_row(
-            [
-                ("Piek totale opwek", peak_value(gen_df, "P_generation_total_kW"), "kW", 1),
-                ("Jaaropwek PV", annual_sum(gen_df, "P_pv_kW"), "kWh", 0),
-                ("Jaaropwek WKK", annual_sum(gen_df, "P_wkk_el_kW"), "kWh", 0),
-                ("Piek netimport", peak_value(gen_df, "P_grid_import_kW"), "kW", 1),
-            ]
-        )
+        render_generation_calculation_results(gen_df)
 
 
 with heat_tab:
