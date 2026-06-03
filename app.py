@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 import pandas as pd
 import streamlit as st
@@ -37,10 +38,11 @@ SIM_FREQ = None
 TZ = "Europe/Amsterdam"
 DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 DAY_TO_INT = {d: i for i, d in enumerate(DAY_LABELS)}
+PROJECT_SCHEMA_VERSION = 1
 
 
-def init_state() -> None:
-    defaults = {
+def app_state_defaults() -> dict:
+    return {
         "pelektro_subloads": [],
         "pprocess_subloads": [],
         "poverig_subloads": [],
@@ -157,11 +159,144 @@ def init_state() -> None:
         "ov_occ": 2.0,
         "ov_unocc": 0.5,
     }
-    for k, v in defaults.items():
-        st.session_state.setdefault(k, v)
+
+
+def init_state() -> None:
+    for k, v in app_state_defaults().items():
+        st.session_state.setdefault(k, deepcopy(v))
 
 
 init_state()
+
+
+PROJECT_EXTRA_STATE_KEYS = (
+    "bld_sched_days",
+    "bld_sched_start",
+    "bld_sched_end",
+)
+
+DYNAMIC_WIDGET_PREFIXES = (
+    "pe_name_",
+    "pe_days_",
+    "pe_start_",
+    "pe_end_",
+    "pe_pocc_",
+    "pe_punocc_",
+    "ov_name_",
+    "ov_days_",
+    "ov_start_",
+    "ov_end_",
+    "ov_pocc_",
+    "ov_punocc_",
+    "proc_name_",
+    "proc_days_",
+    "proc_start_",
+    "proc_end_",
+    "proc_pp_",
+    "proc_pi_",
+)
+
+
+def project_state_keys() -> list[str]:
+    defaults = app_state_defaults()
+    keys = [k for k in defaults if not k.startswith("last_")]
+    keys.extend(k for k in PROJECT_EXTRA_STATE_KEYS if k in st.session_state)
+    return keys
+
+
+def build_project_payload() -> dict:
+    defaults = app_state_defaults()
+    state = {}
+    for key in project_state_keys():
+        if key in st.session_state:
+            state[key] = deepcopy(st.session_state[key])
+        elif key in defaults:
+            state[key] = deepcopy(defaults[key])
+    return {
+        "schema_version": PROJECT_SCHEMA_VERSION,
+        "app": "energiesysteem",
+        "state": state,
+    }
+
+
+def project_payload_bytes() -> bytes:
+    payload = build_project_payload()
+    return json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
+
+
+def clear_result_state() -> None:
+    defaults = app_state_defaults()
+    for key, value in defaults.items():
+        if key.startswith("last_"):
+            st.session_state[key] = deepcopy(value)
+
+
+def clear_dynamic_widget_state() -> None:
+    for key in list(st.session_state.keys()):
+        if key in PROJECT_EXTRA_STATE_KEYS or any(key.startswith(prefix) for prefix in DYNAMIC_WIDGET_PREFIXES):
+            st.session_state.pop(key, None)
+
+
+def reset_input_state() -> None:
+    defaults = app_state_defaults()
+    clear_dynamic_widget_state()
+    for key, value in defaults.items():
+        st.session_state[key] = deepcopy(value)
+
+
+def apply_project_payload(payload: dict) -> tuple[int, list[str]]:
+    if not isinstance(payload, dict):
+        raise ValueError("Projectbestand moet een JSON-object zijn.")
+
+    raw_state = payload.get("state", payload)
+    if not isinstance(raw_state, dict):
+        raise ValueError("Projectbestand bevat geen geldige 'state'.")
+
+    defaults = app_state_defaults()
+    allowed = set(defaults) | set(PROJECT_EXTRA_STATE_KEYS)
+    ignored = sorted(k for k in raw_state if k not in allowed or k.startswith("last_"))
+
+    clear_dynamic_widget_state()
+    for key, value in raw_state.items():
+        if key in allowed and not key.startswith("last_"):
+            st.session_state[key] = deepcopy(value)
+    clear_result_state()
+    return len(raw_state) - len(ignored), ignored
+
+
+def render_project_controls() -> None:
+    with st.expander("Projectbestand", expanded=False):
+        st.caption("Sla alleen invoerinstellingen op. Resultaten, uploads en meetdata worden niet in het projectbestand bewaard.")
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c1:
+            st.download_button(
+                "Download instellingen",
+                project_payload_bytes(),
+                file_name="energieproject_instellingen.json",
+                mime="application/json",
+            )
+        with c2:
+            uploaded_project = st.file_uploader(
+                "Upload projectbestand",
+                type=["json"],
+                key="project_file_upload",
+            )
+            if uploaded_project is not None and st.button("Laad instellingen", key="load_project_file"):
+                try:
+                    payload = json.loads(uploaded_project.getvalue().decode("utf-8"))
+                    loaded_count, ignored = apply_project_payload(payload)
+                    st.success(f"Projectbestand geladen: {loaded_count} instellingen toegepast.")
+                    if ignored:
+                        st.caption(f"Genegeerde velden: {', '.join(ignored)}")
+                except Exception as exc:
+                    st.error(f"Projectbestand kon niet worden geladen: {exc}")
+        with c3:
+            if st.button("Reset invoer", key="reset_project_inputs"):
+                reset_input_state()
+                st.success("Invoerinstellingen teruggezet naar standaardwaarden.")
+
+
+render_project_controls()
 
 
 @st.cache_data(show_spinner=False)
