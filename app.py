@@ -28,9 +28,9 @@ from src.evaluation.calibration import prepare_validation_dataset
 from src.io.measurements import load_measurement_bundle
 from src.generation import simulate_pv, dispatch_wkk
 
-st.set_page_config(page_title="Energiesysteem Prototype", layout="wide")
-st.title("Energiesysteem Prototype")
-st.caption("Structuur: Load · Generation · Storage · Total. De simulatie gebruikt één kunstmatig jaar opgebouwd uit de Excel-maanden.")
+st.set_page_config(page_title="Energieplanner gebouw", layout="wide")
+st.title("Energieplanner gebouw")
+st.caption("Modelleer het energiegebruik van een gebouw en verken opties zoals zonnepanelen, warmtebronnen en opslag.")
 
 APP_DIR = Path(__file__).resolve().parent
 WEATHER_PATH = APP_DIR / "Weatherdata 2008-2021.xlsx"
@@ -39,6 +39,292 @@ TZ = "Europe/Amsterdam"
 DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 DAY_TO_INT = {d: i for i, d in enumerate(DAY_LABELS)}
 PROJECT_SCHEMA_VERSION = 1
+
+DAY_DISPLAY = {
+    "Mon": "Maandag",
+    "Tue": "Dinsdag",
+    "Wed": "Woensdag",
+    "Thu": "Donderdag",
+    "Fri": "Vrijdag",
+    "Sat": "Zaterdag",
+    "Sun": "Zondag",
+}
+
+CHOICE_LABELS = {
+    "pre_1992": "Voor 1992",
+    "1992_2005": "1992-2005",
+    "2006_2014": "2006-2014",
+    "2015_plus": "2015 of nieuwer",
+    "N": "Noord",
+    "NE": "Noordoost",
+    "E": "Oost",
+    "SE": "Zuidoost",
+    "S": "Zuid",
+    "SW": "Zuidwest",
+    "W": "West",
+    "NW": "Noordwest",
+    "compact": "Compact",
+    "rectangular": "Rechthoekig",
+    "l_shape": "L-vormig",
+    "sprawling": "Uitgestrekt",
+    "fixed": "Vaste COP",
+    "seasonal": "Seizoensafhankelijke COP",
+    "weather_dependent": "Weersafhankelijke COP",
+    "electricity_led": "Sturen op elektriciteitsvraag",
+    "thermal_led": "Sturen op warmtevraag",
+    "heat_led": "Sturen op warmtevraag",
+    "hybrid_peak_shaving": "Hybride piekverlaging",
+    "heat_led_with_electric_cap": "Warmtegestuurd met elektrisch maximum",
+    "must_run": "Altijd draaien",
+    "off": "Uit",
+    "gas": "Aardgas",
+    "biogas": "Biogas",
+    "hydrogen": "Waterstof",
+    "generic": "Algemeen",
+    "kW": "Vermogen in kW",
+    "kWh_per_interval": "Energie per meetinterval",
+    "none": "Niet invullen",
+    "ffill": "Vorige waarde doortrekken",
+    "bfill": "Volgende waarde terugvullen",
+    "interpolate_time": "Interpoleren op tijd",
+    "zero": "Nul invullen",
+    "grid_import": "Netimport",
+    "grid_export": "Teruglevering",
+    "electric_load": "Elektrisch verbruik",
+    "heat": "Warmte",
+    "mean_to_hourly": "Gemiddelde naar uurwaarde",
+    "sum_to_hourly": "Som naar uurwaarde",
+    "mean": "Gemiddelde",
+    "sum": "Som",
+}
+
+LABELS = {
+    "def_building_type": "Gebouwtype",
+    "def_year_class": "Bouwjaarklasse",
+    "def_orientation": "Oriëntatie gebouw",
+    "def_bvo": "Gebruiksoppervlak [m²]",
+    "def_floors": "Aantal verdiepingen",
+    "def_wwr": "Raampercentage",
+    "def_shape": "Gebouwvorm",
+    "def_shape_metric": "Vormfactor",
+    "def_manual_shape": "Vormfactor handmatig instellen",
+    "def_shape_manual": "Handmatige vormfactor",
+    "bld_enable": "Gebouwinstellingen aanpassen",
+    "bld_sched_enable": "Gebruiksschema aanpassen",
+    "schedule_days": "Gebruiksdagen",
+    "schedule_start": "Starttijd",
+    "schedule_end": "Eindtijd",
+    "subload_add": "Deellast toevoegen",
+    "process_add": "Proces toevoegen",
+    "subload_name": "Naam",
+    "subload_remove": "Verwijder",
+    "bld_t_heat_occ": "Verwarmingstemperatuur tijdens gebruik [°C]",
+    "bld_t_heat_unocc": "Verwarmingstemperatuur buiten gebruik [°C]",
+    "bld_t_cool_occ": "Koeltemperatuur tijdens gebruik [°C]",
+    "bld_t_cool_unocc": "Koeltemperatuur buiten gebruik [°C]",
+    "bld_cop_winter": "COP gebouwverwarming winter",
+    "bld_cop_spring": "COP gebouwverwarming lente",
+    "bld_cop_summer": "COP gebouwverwarming zomer",
+    "bld_cop_autumn": "COP gebouwverwarming herfst",
+    "bld_eer_winter": "EER gebouwkoeling winter",
+    "bld_eer_spring": "EER gebouwkoeling lente",
+    "bld_eer_summer": "EER gebouwkoeling zomer",
+    "bld_eer_autumn": "EER gebouwkoeling herfst",
+    "bld_eta_wtw": "Warmteterugwinning ventilatie",
+    "bld_qv10": "Luchtdichtheid qv10 [m³/h per m²]",
+    "bld_g_value": "Zontoetreding glas",
+    "bld_shading_factor": "Zonweringfactor",
+    "pe_enable": "Standaard elektrisch verbruik aanpassen",
+    "pe_occ": "Elektrisch vermogen tijdens gebruik [W/m²]",
+    "pe_unocc": "Elektrisch vermogen buiten gebruik [W/m²]",
+    "pr_enable": "Standaard procesverbruik aanpassen",
+    "pr_pp": "Procesvermogen tijdens bedrijf [kW]",
+    "pr_pi": "Procesvermogen buiten bedrijf [kW]",
+    "subload_p_occ": "Vermogen tijdens gebruik [W/m²]",
+    "subload_p_unocc": "Vermogen buiten gebruik [W/m²]",
+    "proc_p_process": "Procesvermogen tijdens bedrijf [kW]",
+    "proc_p_idle": "Procesvermogen buiten bedrijf [kW]",
+    "mob_n_cars": "Aantal elektrische auto's",
+    "mob_p_charger_max": "Laadvermogen per auto [kW]",
+    "mob_duty_cycle": "Gelijktijdige laadfractie",
+    "mob_site_cap": "Maximaal laadvermogen locatie [kW]",
+    "ov_enable": "Standaard overig verbruik aanpassen",
+    "ov_occ": "Overig vermogen tijdens gebruik [W/m²]",
+    "ov_unocc": "Overig vermogen buiten gebruik [W/m²]",
+    "pv_enabled": "Zonnepanelen meenemen",
+    "pv_cap": "Vermogen zonnepanelen [kWp]",
+    "pv_tilt": "Hellingshoek zonnepanelen [°]",
+    "pv_azimuth": "Richting zonnepanelen [°]",
+    "pv_pr": "Prestatieverhouding zonnepanelen",
+    "pv_inv_eff": "Omvormerrendement",
+    "pv_temp_coeff": "Temperatuurcorrectie zonnepanelen [/°C]",
+    "pv_site_cap": "Maximale PV-teruglevering [kW]",
+    "wkk_enabled": "WKK meenemen",
+    "wkk_p_rated": "Elektrisch WKK-vermogen [kW]",
+    "wkk_min_frac": "Minimale WKK-belasting",
+    "wkk_el_eff": "Elektrisch rendement WKK",
+    "wkk_th_eff": "Thermisch rendement WKK",
+    "wkk_dispatch_mode": "WKK-regeling",
+    "grid_cap_kW": "Gecontracteerd netvermogen [kW]",
+    "hp_enabled": "Warmtepomp meenemen",
+    "hp_capacity": "Warmtepompvermogen [kWth]",
+    "hp_cop_mode": "COP-berekening warmtepomp",
+    "hp_cop_nominal": "Nominale COP warmtepomp",
+    "hp_min_frac": "Minimale deellast warmtepomp",
+    "hp_site_cap": "Maximaal elektrisch warmtepompvermogen [kW]",
+    "boiler_enabled": "Ketel meenemen",
+    "boiler_capacity": "Ketelvermogen [kWth]",
+    "boiler_eff": "Ketelrendement",
+    "boiler_min_frac": "Minimale deellast ketel",
+    "boiler_fuel_type": "Brandstoftype ketel",
+    "dh_enabled": "Warmtenet meenemen",
+    "dh_capacity": "Warmtenetvermogen [kWth]",
+    "dh_tariff": "Warmtenettarief",
+    "bat_enabled": "Batterij meenemen",
+    "bat_capacity": "Batterijcapaciteit [kWh]",
+    "bat_soc_init": "Startvulling batterij [%]",
+    "bat_p_charge": "Laadvermogen batterij [kW]",
+    "bat_soc_min": "Minimale vulling batterij [%]",
+    "bat_p_discharge": "Ontlaadvermogen batterij [kW]",
+    "bat_soc_max": "Maximale vulling batterij [%]",
+    "bat_eff": "Rondrendement batterij",
+    "bat_charge_strategy": "Laadstrategie batterij",
+    "th_enabled": "Warmteopslag meenemen",
+    "th_capacity": "Warmteopslagcapaciteit [kWhth]",
+    "th_soc_init": "Startvulling warmteopslag [%]",
+    "th_p_charge": "Laadvermogen warmteopslag [kWth]",
+    "th_soc_min": "Minimale vulling warmteopslag [%]",
+    "th_p_discharge": "Ontlaadvermogen warmteopslag [kWth]",
+    "th_soc_max": "Maximale vulling warmteopslag [%]",
+    "th_loss": "Warmteverlies per uur",
+    "th_eff_charge": "Laadrendement warmteopslag",
+    "th_eff_discharge": "Ontlaadrendement warmteopslag",
+    "measurement_enabled": "Meetdata gebruiken",
+    "measurement_power_unit_mode": "Eenheid meetdata",
+    "measurement_expected_resolution": "Tijdresolutie meetdata",
+    "measurement_gap_fill_method": "Ontbrekende meetwaarden",
+    "measurement_comparison_mode": "Vergelijkingsgrootheid",
+    "measurement_resample_policy": "Omrekening meetdata",
+    "measurement_upload": "Upload meetdata (.csv, .xlsx)",
+}
+
+HELP_TEXTS = {
+    "def_building_type": "Wat: het type gebouw. In het model kiest dit standaardprofielen voor gebruik, apparatuur en warmtevraag. Effect: een ander type verandert het basisverbruik en de verdeling over de dag.",
+    "def_year_class": "Wat: de bouw- of renovatieperiode. In het model bepaalt dit de gebouwkwaliteit en isolatie-aannames. Effect: oudere klassen geven meestal meer warmteverlies en hogere warmtevraag.",
+    "def_orientation": "Wat: de globale oriëntatie van het gebouw. In het model beïnvloedt dit zoninstraling op de gevels. Effect: een andere richting kan warmte- en koelvraag verschuiven.",
+    "def_bvo": "Wat: het bruto vloeroppervlak. In het model schaalt dit gebouwvraag, apparatuur en overige lasten. Effect: meer oppervlak geeft meestal meer warmte-, koel- en elektriciteitsvraag.",
+    "def_floors": "Wat: het aantal verdiepingen. In het model helpt dit bij de gebouwvorm en verhouding tussen dak, gevel en vloeroppervlak. Effect: dit kan warmteverlies en zoninvloed veranderen.",
+    "def_wwr": "Wat: het aandeel gevel dat uit glas bestaat. In het model beïnvloedt dit zoninstraling, warmteverlies en koelvraag. Effect: meer glas kan meer koeling en soms minder verwarming geven.",
+    "def_shape": "Wat: de globale gebouwvorm. In het model wordt dit vertaald naar een vormfactor voor warmteverlies. Effect: compactere vormen verliezen meestal minder warmte.",
+    "def_manual_shape": "Wat: een handmatige overschrijving van de vormfactor. In het model vervangt dit de automatische waarde. Effect: gebruik dit alleen als de echte compactheid bekend is.",
+    "def_shape_manual": "Wat: de zelf gekozen vormfactor. In het model bepaalt dit hoe groot het warmteverlies via de gebouwschil is. Effect: hoger betekent meestal meer warmtevraag.",
+    "bld_enable": "Wat: hiermee pas je gebouwdetails handmatig aan. In het model overschrijven deze waarden de standaardinstellingen. Effect: de warmtevraag, koelvraag en installatievraag veranderen direct.",
+    "bld_sched_enable": "Wat: hiermee stel je gebruiksdagen en gebruiksuren zelf in. In het model bepaalt dit wanneer bezette instellingen gelden. Effect: langere gebruiksuren verhogen meestal de energievraag.",
+    "schedule_days": "Wat: dagen waarop het gebouw of de deellast actief is. In het model worden alleen deze dagen als gebruiksperiode behandeld. Effect: meer dagen verhogen het week- en jaarverbruik.",
+    "schedule_start": "Wat: startuur van de actieve periode. In het model begint dan het bezette of actieve profiel. Effect: eerder starten verschuift verbruik naar de ochtend en verhoogt actieve uren.",
+    "schedule_end": "Wat: einduur van de actieve periode. In het model stopt dan het bezette of actieve profiel. Effect: later eindigen verhoogt actieve uren en vaak de totale vraag.",
+    "bld_t_heat_occ": "Wat: gewenste temperatuur tijdens gebruik. In het model bepaalt dit wanneer verwarming nodig is. Effect: hoger instellen verhoogt de warmtevraag.",
+    "bld_t_heat_unocc": "Wat: gewenste temperatuur buiten gebruik. In het model bepaalt dit nacht- en weekendverwarming. Effect: hoger instellen verhoogt basiswarmtevraag.",
+    "bld_t_cool_occ": "Wat: temperatuur waarboven tijdens gebruik wordt gekoeld. In het model bepaalt dit de koelvraag. Effect: lager instellen verhoogt de koelvraag.",
+    "bld_t_cool_unocc": "Wat: temperatuur waarboven buiten gebruik wordt gekoeld. In het model bepaalt dit koeling buiten gebruikstijd. Effect: lager instellen kan extra nacht- en weekendkoeling geven.",
+    "bld_cop_winter": "Wat: verwarmingsrendement in de winter. In het model zet dit gebouw-warmtevraag om naar elektriciteitsvraag. Effect: hogere COP verlaagt stroomgebruik voor verwarming.",
+    "bld_cop_spring": "Wat: verwarmingsrendement in de lente. In het model zet dit gebouw-warmtevraag om naar elektriciteitsvraag. Effect: hogere COP verlaagt stroomgebruik voor verwarming.",
+    "bld_cop_summer": "Wat: verwarmingsrendement in de zomer. In het model zet dit gebouw-warmtevraag om naar elektriciteitsvraag. Effect: hogere COP verlaagt stroomgebruik voor verwarming.",
+    "bld_cop_autumn": "Wat: verwarmingsrendement in de herfst. In het model zet dit gebouw-warmtevraag om naar elektriciteitsvraag. Effect: hogere COP verlaagt stroomgebruik voor verwarming.",
+    "bld_eer_winter": "Wat: koelrendement in de winter. In het model zet dit koelvraag om naar elektriciteitsvraag. Effect: hogere EER verlaagt stroomgebruik voor koeling.",
+    "bld_eer_spring": "Wat: koelrendement in de lente. In het model zet dit koelvraag om naar elektriciteitsvraag. Effect: hogere EER verlaagt stroomgebruik voor koeling.",
+    "bld_eer_summer": "Wat: koelrendement in de zomer. In het model zet dit koelvraag om naar elektriciteitsvraag. Effect: hogere EER verlaagt stroomgebruik voor koeling.",
+    "bld_eer_autumn": "Wat: koelrendement in de herfst. In het model zet dit koelvraag om naar elektriciteitsvraag. Effect: hogere EER verlaagt stroomgebruik voor koeling.",
+    "bld_eta_wtw": "Wat: aandeel ventilatiewarmte dat wordt teruggewonnen. In het model verlaagt dit ventilatieverlies. Effect: hoger verlaagt de warmtevraag.",
+    "bld_qv10": "Wat: maat voor luchtlekken in het gebouw. In het model verhoogt dit infiltratieverlies. Effect: hoger betekent meestal meer warmtevraag.",
+    "bld_g_value": "Wat: hoeveel zonnewarmte door glas binnenkomt. In het model beïnvloedt dit zonnewinst en koeling. Effect: hoger kan verwarming verlagen maar koeling verhogen.",
+    "bld_shading_factor": "Wat: correctie voor zonwering of beschaduwing. In het model verlaagt dit effectieve zoninstraling. Effect: lager verlaagt vaak koelvraag, maar ook nuttige zonnewarmte.",
+    "pe_enable": "Wat: handmatige aanpassing van standaard elektrisch verbruik. In het model vervangt dit de standaard vermogens per m². Effect: hogere waarden verhogen elektrisch verbruik.",
+    "pe_occ": "Wat: elektrisch vermogen per m² tijdens gebruik. In het model vormt dit de actieve elektrische basislast. Effect: hoger verhoogt pieken en jaarverbruik.",
+    "pe_unocc": "Wat: elektrisch vermogen per m² buiten gebruik. In het model vormt dit sluip- en basisverbruik. Effect: hoger verhoogt nacht- en weekendverbruik.",
+    "pr_enable": "Wat: handmatige aanpassing van procesverbruik. In het model vervangt dit het standaard procesprofiel. Effect: hogere waarden verhogen vooral procesuren en basislast.",
+    "pr_pp": "Wat: vermogen van processen tijdens bedrijf. In het model wordt dit als proceslast meegenomen. Effect: hoger verhoogt elektriciteitsvraag tijdens procesuren.",
+    "pr_pi": "Wat: rustvermogen van processen buiten bedrijf. In het model blijft dit buiten actieve uren aanwezig. Effect: hoger verhoogt basislast.",
+    "subload_name": "Wat: herkenbare naam van deze deellast. In het model verandert de naam de berekening niet. Effect: maakt resultaten en instellingen beter te begrijpen.",
+    "subload_p_occ": "Wat: vermogen van deze deellast tijdens gebruik. In het model telt dit mee in het actieve profiel. Effect: hoger verhoogt pieken en jaarverbruik.",
+    "subload_p_unocc": "Wat: vermogen van deze deellast buiten gebruik. In het model telt dit mee in het rustprofiel. Effect: hoger verhoogt basisverbruik.",
+    "proc_p_process": "Wat: vermogen van dit proces tijdens bedrijf. In het model wordt dit toegevoegd aan procesverbruik. Effect: hoger verhoogt elektriciteitsvraag tijdens procesuren.",
+    "proc_p_idle": "Wat: rustvermogen van dit proces buiten bedrijf. In het model blijft dit aanwezig buiten actieve uren. Effect: hoger verhoogt basislast.",
+    "mob_n_cars": "Wat: aantal elektrische auto's dat kan laden. In het model schaalt dit het mobiliteitsprofiel. Effect: meer auto's verhogen laadverbruik en mogelijk pieken.",
+    "mob_p_charger_max": "Wat: maximaal laadvermogen per auto. In het model begrenst dit laadsnelheid per auto. Effect: hoger kan hogere pieken veroorzaken.",
+    "mob_duty_cycle": "Wat: aandeel auto's dat tegelijk laadt. In het model begrenst dit gelijktijdig laadvermogen. Effect: hoger verhoogt de piekbelasting.",
+    "mob_site_cap": "Wat: maximum voor alle laadpunten samen. In het model kapt dit mobiliteitsvermogen af. Effect: lager beperkt pieken, maar spreidt of beperkt laden.",
+    "ov_enable": "Wat: handmatige aanpassing van overig verbruik. In het model vervangt dit de standaard restlast. Effect: hogere waarden verhogen het totale elektriciteitsverbruik.",
+    "ov_occ": "Wat: overig vermogen per m² tijdens gebruik. In het model telt dit mee als restverbruik. Effect: hoger verhoogt actieve basislast.",
+    "ov_unocc": "Wat: overig vermogen per m² buiten gebruik. In het model telt dit mee als rustverbruik. Effect: hoger verhoogt nacht- en weekendverbruik.",
+    "pv_enabled": "Wat: keuze om zonnepanelen mee te nemen. In het model wordt PV-opwek dan berekend uit weerdata en paneelinstellingen. Effect: aan verlaagt netimport en kan teruglevering geven.",
+    "pv_cap": "Wat: totaal piekvermogen van de zonnepanelen. In het model schaalt dit de PV-opbrengst. Effect: hoger geeft meer zonnestroom en mogelijk meer teruglevering.",
+    "pv_tilt": "Wat: hoek van de panelen ten opzichte van horizontaal. In het model beïnvloedt dit instraling op het paneel. Effect: andere hoek verschuift opbrengst per seizoen.",
+    "pv_azimuth": "Wat: richting van de panelen in graden. In het model bepaalt dit wanneer de panelen zon ontvangen. Effect: zuid geeft vaak hoge jaaropbrengst, oost/west spreidt opbrengst over de dag.",
+    "pv_pr": "Wat: praktijkfactor voor verliezen zoals vuil, bekabeling en mismatch. In het model vermenigvuldigt dit de PV-opbrengst. Effect: lager verlaagt de berekende opbrengst.",
+    "pv_inv_eff": "Wat: rendement van de omvormer. In het model wordt DC-opwek hiermee naar bruikbare AC-stroom vertaald. Effect: hoger geeft iets meer bruikbare stroom.",
+    "pv_temp_coeff": "Wat: rendementsverlies bij warme panelen. In het model corrigeert dit PV-opbrengst op basis van temperatuur. Effect: sterker negatief verlaagt opbrengst op warme dagen.",
+    "pv_site_cap": "Wat: maximale PV-teruglevering of output. In het model wordt PV boven deze grens afgetopt. Effect: lager beperkt terugleverpieken maar kan opwek afregelen.",
+    "wkk_enabled": "Wat: keuze om WKK mee te nemen. In het model levert WKK tegelijk elektriciteit en warmte. Effect: aan kan netimport en warmtevraag verlagen, maar verhoogt brandstofgebruik.",
+    "wkk_p_rated": "Wat: maximaal elektrisch vermogen van de WKK. In het model begrenst dit WKK-stroomproductie. Effect: hoger kan meer netimport vervangen.",
+    "wkk_min_frac": "Wat: minimale belasting waarop de WKK mag draaien. In het model voorkomt dit te laag moduleren. Effect: hoger maakt de WKK minder flexibel.",
+    "wkk_el_eff": "Wat: deel van brandstof dat elektriciteit wordt. In het model bepaalt dit brandstofgebruik per kWh stroom. Effect: hoger verlaagt brandstofgebruik.",
+    "wkk_th_eff": "Wat: deel van brandstof dat nuttige warmte wordt. In het model bepaalt dit warmtelevering uit WKK. Effect: hoger verlaagt resterende warmtevraag.",
+    "wkk_dispatch_mode": "Wat: regelstrategie voor de WKK. In het model bepaalt dit wanneer de WKK draait. Effect: andere sturing verschuift netimport, warmte en brandstofgebruik.",
+    "grid_cap_kW": "Wat: afgesproken maximaal netvermogen. In het model wordt dit gebruikt om overschrijdingen en netstress te beoordelen. Effect: lager maakt knelpunten sneller zichtbaar.",
+    "hp_enabled": "Wat: keuze om de warmtepomp mee te nemen. In het model levert de warmtepomp warmte met elektriciteit. Effect: aan verlaagt gasvraag maar verhoogt elektriciteitsvraag.",
+    "hp_capacity": "Wat: maximale warmteproductie van de warmtepomp. In het model begrenst dit hoeveel warmtevraag de warmtepomp dekt. Effect: hoger dekt meer warmte maar kan meer netvermogen vragen.",
+    "hp_cop_mode": "Wat: manier waarop warmtepomprendement wordt bepaald. In het model kiest dit vaste, seizoen- of weersafhankelijke COP. Effect: weersafhankelijk geeft realistischer variatie.",
+    "hp_cop_nominal": "Wat: standaardrendement van de warmtepomp. In het model zet dit warmte om naar elektriciteitsverbruik. Effect: hoger verlaagt stroomvraag voor dezelfde warmte.",
+    "hp_min_frac": "Wat: laagste deelvermogen waarop de warmtepomp kan draaien. In het model beperkt dit modulatie. Effect: hoger maakt de warmtepomp minder flexibel bij lage vraag.",
+    "hp_site_cap": "Wat: maximaal elektrisch vermogen voor de warmtepomp. In het model begrenst dit stroomgebruik van de warmtepomp. Effect: lager verlaagt pieken maar kan ongedekte warmte geven.",
+    "boiler_enabled": "Wat: keuze om een ketel mee te nemen. In het model kan de ketel resterende warmtevraag leveren. Effect: aan verhoogt leveringszekerheid maar kan brandstofgebruik geven.",
+    "boiler_capacity": "Wat: maximale warmteproductie van de ketel. In het model begrenst dit ketelwarmte. Effect: hoger dekt meer piekvraag.",
+    "boiler_eff": "Wat: rendement van brandstof naar warmte. In het model bepaalt dit brandstofgebruik. Effect: hoger verlaagt brandstofgebruik voor dezelfde warmte.",
+    "boiler_min_frac": "Wat: laagste deelvermogen waarop de ketel kan draaien. In het model beperkt dit modulatie. Effect: hoger maakt de ketel minder flexibel.",
+    "boiler_fuel_type": "Wat: brandstofsoort van de ketel. In het model labelt dit de brandstofstroom. Effect: belangrijk voor interpretatie en toekomstige emissieberekening.",
+    "dh_enabled": "Wat: keuze om warmtenet mee te nemen. In het model kan het warmtenet warmtevraag leveren. Effect: aan kan ketel of warmtepomp aanvullen.",
+    "dh_capacity": "Wat: maximale warmte uit het warmtenet. In het model begrenst dit warmtenetlevering. Effect: hoger dekt meer warmtevraag.",
+    "dh_tariff": "Wat: tarief of kostenplaceholder voor warmtenet. In het model wordt dit nog beperkt gebruikt. Effect: aanpassen heeft nu vooral documenterende waarde.",
+    "bat_enabled": "Wat: keuze om batterijopslag mee te nemen. In het model kan elektriciteit tijdelijk worden opgeslagen. Effect: aan kan pieken verlagen en eigen PV-gebruik verhogen.",
+    "bat_capacity": "Wat: hoeveelheid elektriciteit die de batterij kan opslaan. In het model bepaalt dit opslagduur. Effect: groter kan meer energie verschuiven.",
+    "bat_soc_init": "Wat: vulling aan het begin van de simulatie. In het model start de batterij hiermee. Effect: beïnvloedt vooral de eerste simulatiedagen.",
+    "bat_p_charge": "Wat: maximale laadsnelheid van de batterij. In het model begrenst dit hoeveel overschot per uur wordt opgeslagen. Effect: hoger benut meer piekoverschot.",
+    "bat_soc_min": "Wat: minimale toegestane vulling. In het model voorkomt dit verder ontladen. Effect: hoger verlaagt bruikbare capaciteit.",
+    "bat_p_discharge": "Wat: maximale ontlaadsnelheid van de batterij. In het model begrenst dit hoeveel netvraag kan worden verlaagd. Effect: hoger verlaagt pieken sterker.",
+    "bat_soc_max": "Wat: maximale toegestane vulling. In het model voorkomt dit verder laden. Effect: lager verlaagt opslagruimte.",
+    "bat_eff": "Wat: totaalrendement van laden en ontladen. In het model gaat bij opslag een deel verloren. Effect: lager betekent meer energieverlies.",
+    "bat_charge_strategy": "Wat: manier waarop de batterij mag laden. In het model bepaalt dit of laden alleen met overschot of ook met netruimte gebeurt. Effect: kan pieken en eigenverbruik veranderen.",
+    "th_enabled": "Wat: keuze om warmteopslag mee te nemen. In het model kan warmte tijdelijk worden opgeslagen. Effect: aan kan warmteproductie verschuiven.",
+    "th_capacity": "Wat: hoeveelheid warmte die kan worden opgeslagen. In het model bepaalt dit opslagduur voor warmte. Effect: groter kan warmtevraag langer overbruggen.",
+    "th_soc_init": "Wat: startvulling van de warmteopslag. In het model begint de opslag hiermee. Effect: beïnvloedt vooral het begin van de simulatie.",
+    "th_p_charge": "Wat: maximale snelheid waarmee warmte wordt opgeslagen. In het model begrenst dit laden van warmteopslag. Effect: hoger slaat meer overschot of productie op.",
+    "th_soc_min": "Wat: minimale toegestane vulling. In het model voorkomt dit verder ontladen. Effect: hoger verlaagt bruikbare warmteopslag.",
+    "th_p_discharge": "Wat: maximale snelheid waarmee warmte wordt geleverd. In het model begrenst dit ontladen. Effect: hoger kan warmtepiek beter afdekken.",
+    "th_soc_max": "Wat: maximale toegestane vulling. In het model voorkomt dit verder laden. Effect: lager verlaagt opslagruimte.",
+    "th_loss": "Wat: warmteverlies per uur. In het model neemt opgeslagen warmte hiermee af. Effect: hoger maakt opslag minder effectief.",
+    "th_eff_charge": "Wat: rendement bij warmte opslaan. In het model gaat bij laden warmte verloren. Effect: lager geeft meer verlies.",
+    "th_eff_discharge": "Wat: rendement bij warmte gebruiken. In het model gaat bij ontladen warmte verloren. Effect: lager geeft minder bruikbare warmte.",
+    "measurement_enabled": "Wat: keuze om meetdata te gebruiken. In het model wordt meetdata naast simulatie gezet. Effect: aan maakt validatie van modelresultaten mogelijk.",
+    "measurement_power_unit_mode": "Wat: geeft aan of meetdata vermogen of energie per interval is. In het model bepaalt dit de omzetting naar kW. Effect: verkeerde keuze vertekent de vergelijking.",
+    "measurement_expected_resolution": "Wat: tijdstap van de meetdata. In het model wordt data hierop gecontroleerd en omgerekend. Effect: verkeerde resolutie kan validatie vertekenen.",
+    "measurement_gap_fill_method": "Wat: methode voor ontbrekende meetwaarden. In het model bepaalt dit hoe gaten worden behandeld. Effect: invullen kan vergelijking stabieler maken maar voegt aannames toe.",
+    "measurement_comparison_mode": "Wat: grootheid waarop simulatie en meting worden vergeleken. In het model kiest dit de vergelijkingskolommen. Effect: verkeerde keuze vergelijkt de verkeerde energiestroom.",
+    "measurement_resample_policy": "Wat: manier waarop meetdata naar een andere tijdstap gaat. In het model bepaalt dit middelen of optellen. Effect: verkeerde keuze kan waarden te hoog of te laag maken.",
+    "measurement_upload": "Wat: bestand met werkelijke meetdata. In het model wordt dit ingelezen voor validatie. Effect: goede meetdata maakt modelcontrole betrouwbaarder.",
+}
+
+
+def label_for(key: str, fallback: str | None = None) -> str:
+    return LABELS.get(key, fallback or key)
+
+
+def help_for(key: str) -> str | None:
+    return HELP_TEXTS.get(key)
+
+
+def choice_label(value: str) -> str:
+    return CHOICE_LABELS.get(str(value), str(value))
 
 
 def app_state_defaults() -> dict:
@@ -274,14 +560,16 @@ def render_project_controls() -> None:
                 project_payload_bytes(),
                 file_name="energieproject_instellingen.json",
                 mime="application/json",
+                help="Wat: downloadt de huidige invoerinstellingen als projectbestand. In het model verandert dit niets. Effect: je kunt later met dezelfde instellingen verder werken.",
             )
         with c2:
             uploaded_project = st.file_uploader(
                 "Upload projectbestand",
                 type=["json"],
                 key="project_file_upload",
+                help="Wat: laad een eerder opgeslagen projectbestand. In het model worden invoerinstellingen teruggezet, maar resultaten en meetdata niet. Effect: de app gaat verder met de opgeslagen configuratie.",
             )
-            if uploaded_project is not None and st.button("Laad instellingen", key="load_project_file"):
+            if uploaded_project is not None and st.button("Laad instellingen", key="load_project_file", help="Past de geüploade invoerinstellingen toe en wist oude resultaten."):
                 try:
                     payload = json.loads(uploaded_project.getvalue().decode("utf-8"))
                     loaded_count, ignored = apply_project_payload(payload)
@@ -291,7 +579,7 @@ def render_project_controls() -> None:
                 except Exception as exc:
                     st.error(f"Projectbestand kon niet worden geladen: {exc}")
         with c3:
-            if st.button("Reset invoer", key="reset_project_inputs"):
+            if st.button("Reset invoer", key="reset_project_inputs", help="Zet alle invoerinstellingen terug naar de standaardwaarden en wist oude resultaten."):
                 reset_input_state()
                 st.success("Invoerinstellingen teruggezet naar standaardwaarden.")
 
@@ -310,12 +598,8 @@ if not WEATHER_DF.index.is_unique:
     st.error(f"Weather index bevat duplicates: {len(dupes)} rijen")
     st.stop()
 st.caption(
-    f"Kunstmatig weatherjaar geladen: {len(WEATHER_DF)} tijdstappen | "
-    f"van {WEATHER_DF.index.min().strftime('%m-%d %H:%M')} "
-    f"tot {WEATHER_DF.index.max().strftime('%m-%d %H:%M')} | "
-    f"kolommen: {', '.join(WEATHER_DF.columns)}"
+    f"Weerdata geladen: {len(WEATHER_DF)} tijdstappen voor één simulatiejaar."
 )
-st.caption(f"Beschikbare weather columns: {', '.join(WEATHER_DF.columns)}")
 DT_HOURS = (WEATHER_DF.index[1] - WEATHER_DF.index[0]).total_seconds() / 3600.0 if len(WEATHER_DF.index) > 1 else 1.0
 
 
@@ -368,12 +652,19 @@ def schedule_editor(
     default_start=8,
     default_end=18,
 ) -> WeeklySchedule:
-    days = st.multiselect("Days", DAY_LABELS, default=list(default_days), key=f"{prefix}_days")
+    days = st.multiselect(
+        label_for("schedule_days"),
+        DAY_LABELS,
+        default=list(default_days),
+        key=f"{prefix}_days",
+        format_func=lambda d: DAY_DISPLAY.get(d, d),
+        help=help_for("schedule_days"),
+    )
     c1, c2 = st.columns(2)
     with c1:
-        start = st.number_input("Start hour", 0, 23, int(default_start), 1, key=f"{prefix}_start")
+        start = st.number_input(label_for("schedule_start"), 0, 23, int(default_start), 1, key=f"{prefix}_start", help=help_for("schedule_start"))
     with c2:
-        end = st.number_input("End hour", 1, 24, int(default_end), 1, key=f"{prefix}_end")
+        end = st.number_input(label_for("schedule_end"), 1, 24, int(default_end), 1, key=f"{prefix}_end", help=help_for("schedule_end"))
     return WeeklySchedule(
         days_active=tuple(DAY_TO_INT[d] for d in days) if days else (0, 1, 2, 3, 4),
         start_hour=int(start),
@@ -403,7 +694,7 @@ def subload_payload(list_key: str, mode: str):
 
 
 def edit_occ_subloads(list_key: str, prefix: str, default_occ: float, default_unocc: float):
-    if st.button("Add subload", key=f"{prefix}_add"):
+    if st.button(label_for("subload_add"), key=f"{prefix}_add", help="Wat: voegt een aparte verbruiksgroep toe. In het model wordt deze als extra profiel opgeteld. Effect: dit maakt het totale verbruik specifieker en meestal hoger."):
         st.session_state[list_key].append({
             "name": f"{prefix.capitalize()} {len(st.session_state[list_key]) + 1}",
             "days": ("Mon", "Tue", "Wed", "Thu", "Fri"),
@@ -414,26 +705,33 @@ def edit_occ_subloads(list_key: str, prefix: str, default_occ: float, default_un
         })
     for i, sl in enumerate(list(st.session_state[list_key])):
         with st.expander(sl["name"], expanded=False):
-            sl["name"] = st.text_input("Naam", value=sl["name"], key=f"{prefix}_name_{i}")
-            if st.button("Verwijder", key=f"{prefix}_rm_{i}"):
+            sl["name"] = st.text_input(label_for("subload_name"), value=sl["name"], key=f"{prefix}_name_{i}", help=help_for("subload_name"))
+            if st.button(label_for("subload_remove"), key=f"{prefix}_rm_{i}"):
                 st.session_state[list_key].pop(i)
                 st.rerun()
-            sl["days"] = tuple(st.multiselect("Days", DAY_LABELS, default=list(sl["days"]), key=f"{prefix}_days_{i}"))
+            sl["days"] = tuple(st.multiselect(
+                label_for("schedule_days"),
+                DAY_LABELS,
+                default=list(sl["days"]),
+                key=f"{prefix}_days_{i}",
+                format_func=lambda d: DAY_DISPLAY.get(d, d),
+                help=help_for("schedule_days"),
+            ))
             c1, c2 = st.columns(2)
             with c1:
-                sl["start"] = st.number_input("Start hour", 0, 23, int(sl["start"]), 1, key=f"{prefix}_start_{i}")
+                sl["start"] = st.number_input(label_for("schedule_start"), 0, 23, int(sl["start"]), 1, key=f"{prefix}_start_{i}", help=help_for("schedule_start"))
             with c2:
-                sl["end"] = st.number_input("End hour", 1, 24, int(sl["end"]), 1, key=f"{prefix}_end_{i}")
+                sl["end"] = st.number_input(label_for("schedule_end"), 1, 24, int(sl["end"]), 1, key=f"{prefix}_end_{i}", help=help_for("schedule_end"))
             c3, c4 = st.columns(2)
             with c3:
-                sl["p_occ"] = st.number_input("P_occ [W/m²]", value=float(sl["p_occ"]), step=0.2, key=f"{prefix}_pocc_{i}")
+                sl["p_occ"] = st.number_input(label_for("subload_p_occ"), value=float(sl["p_occ"]), step=0.2, key=f"{prefix}_pocc_{i}", help=help_for("subload_p_occ"))
             with c4:
-                sl["p_unocc"] = st.number_input("P_unocc [W/m²]", value=float(sl["p_unocc"]), step=0.2, key=f"{prefix}_punocc_{i}")
+                sl["p_unocc"] = st.number_input(label_for("subload_p_unocc"), value=float(sl["p_unocc"]), step=0.2, key=f"{prefix}_punocc_{i}", help=help_for("subload_p_unocc"))
             st.session_state[list_key][i] = sl
 
 
 def edit_process_subloads():
-    if st.button("Add process", key="proc_add"):
+    if st.button(label_for("process_add"), key="proc_add", help="Wat: voegt een apart proces toe. In het model wordt dit als extra procesprofiel opgeteld. Effect: dit maakt procesverbruik specifieker en meestal hoger."):
         st.session_state["pprocess_subloads"].append({
             "name": f"Process {len(st.session_state['pprocess_subloads']) + 1}",
             "days": ("Mon", "Tue", "Wed", "Thu", "Fri"),
@@ -444,21 +742,28 @@ def edit_process_subloads():
         })
     for i, sl in enumerate(list(st.session_state["pprocess_subloads"])):
         with st.expander(sl["name"], expanded=False):
-            sl["name"] = st.text_input("Naam", value=sl["name"], key=f"proc_name_{i}")
-            if st.button("Verwijder", key=f"proc_rm_{i}"):
+            sl["name"] = st.text_input(label_for("subload_name"), value=sl["name"], key=f"proc_name_{i}", help=help_for("subload_name"))
+            if st.button(label_for("subload_remove"), key=f"proc_rm_{i}"):
                 st.session_state["pprocess_subloads"].pop(i)
                 st.rerun()
-            sl["days"] = tuple(st.multiselect("Days", DAY_LABELS, default=list(sl["days"]), key=f"proc_days_{i}"))
+            sl["days"] = tuple(st.multiselect(
+                label_for("schedule_days"),
+                DAY_LABELS,
+                default=list(sl["days"]),
+                key=f"proc_days_{i}",
+                format_func=lambda d: DAY_DISPLAY.get(d, d),
+                help=help_for("schedule_days"),
+            ))
             c1, c2 = st.columns(2)
             with c1:
-                sl["start"] = st.number_input("Start hour", 0, 23, int(sl["start"]), 1, key=f"proc_start_{i}")
+                sl["start"] = st.number_input(label_for("schedule_start"), 0, 23, int(sl["start"]), 1, key=f"proc_start_{i}", help=help_for("schedule_start"))
             with c2:
-                sl["end"] = st.number_input("End hour", 1, 24, int(sl["end"]), 1, key=f"proc_end_{i}")
+                sl["end"] = st.number_input(label_for("schedule_end"), 1, 24, int(sl["end"]), 1, key=f"proc_end_{i}", help=help_for("schedule_end"))
             c3, c4 = st.columns(2)
             with c3:
-                sl["p_process"] = st.number_input("P_process [kW]", value=float(sl["p_process"]), step=1.0, key=f"proc_pp_{i}")
+                sl["p_process"] = st.number_input(label_for("proc_p_process"), value=float(sl["p_process"]), step=1.0, key=f"proc_pp_{i}", help=help_for("proc_p_process"))
             with c4:
-                sl["p_idle"] = st.number_input("P_idle [kW]", value=float(sl["p_idle"]), step=1.0, key=f"proc_pi_{i}")
+                sl["p_idle"] = st.number_input(label_for("proc_p_idle"), value=float(sl["p_idle"]), step=1.0, key=f"proc_pi_{i}", help=help_for("proc_p_idle"))
             st.session_state["pprocess_subloads"][i] = sl
 
 
@@ -548,13 +853,13 @@ def plot_peak_grid_import_week_stacked(
     st.altair_chart(chart, use_container_width=True)
 
     if "battery_soc_pct" in week_df.columns:
-        st.markdown("**Battery SoC [%]**")
+        st.markdown("**Vullingsgraad batterij [%]**")
         soc_chart = (
             alt.Chart(week_df)
             .mark_line(strokeWidth=2)
             .encode(
                 x=alt.X("timestamp:T", title="Tijd"),
-                y=alt.Y("battery_soc_pct:Q", title="Battery SoC [%]"),
+                y=alt.Y("battery_soc_pct:Q", title="Vullingsgraad batterij [%]"),
                 tooltip=["timestamp:T", alt.Tooltip("battery_soc_pct:Q", format=".2f")],
             )
             .interactive()
@@ -567,27 +872,27 @@ def energy_kpis(df: pd.DataFrame) -> dict:
     peak_after = float(df.get("P_grid_import_kW", zero).max())
     peak_contract_excess = float(df.get("P_grid_contract_excess_kW", zero).max())
     out = {
-        "Peak load [kW]": round(float(df["P_load_total_kW"].max()), 2) if "P_load_total_kW" in df else 0.0,
-        "Peak grid import before battery [kW]": round(peak_before, 2),
-        "Peak grid import after battery [kW]": round(peak_after, 2),
-        "Peak shaving by battery [kW]": round(max(peak_before - peak_after, 0.0), 2),
-        "Peak contract exceedance [kW]": round(peak_contract_excess, 2),
-        "Annual electric load [kWh]": round(float((df.get("P_load_total_kW", zero) * DT_HOURS).sum()), 0),
-        "Annual PV [kWh]": round(float((df.get("P_pv_kW", zero) * DT_HOURS).sum()), 0),
-        "Annual WKK el [kWh]": round(float((df.get("P_wkk_el_kW", zero) * DT_HOURS).sum()), 0),
-        "Annual HP el [kWh]": round(float((df.get("P_hp_el_kW", zero) * DT_HOURS).sum()), 0),
-        "Annual grid import [kWh]": round(float((df.get("P_grid_import_kW", zero) * DT_HOURS).sum()), 0),
-        "Annual grid export [kWh]": round(float((df.get("P_grid_export_kW", zero) * DT_HOURS).sum()), 0),
-        "Annual battery charge [kWh]": round(float((df.get("P_battery_charge_kW", zero) * DT_HOURS).sum()), 0),
-        "Annual battery discharge [kWh]": round(float((df.get("P_battery_discharge_kW", zero) * DT_HOURS).sum()), 0),
-        "Annual heat demand [kWhth]": round(float((df.get("Q_heat_demand_kWth", zero) * DT_HOURS).sum()), 0),
-        "Annual heat supplied [kWhth]": round(float((df.get("Q_heat_supply_total_kWth", zero) * DT_HOURS).sum()), 0),
-        "Annual heat unmet [kWhth]": round(float((df.get("Q_heat_unserved_final_kWth", zero) * DT_HOURS).sum()), 0),
-        "Annual boiler heat [kWhth]": round(float((df.get("Q_boiler_th_kWth", zero) * DT_HOURS).sum()), 0),
-        "Annual district heat [kWhth]": round(float((df.get("Q_dh_th_kWth", zero) * DT_HOURS).sum()), 0),
-        "Annual WKK heat used [kWhth]": round(float((df.get("Q_wkk_used_kWth", zero) * DT_HOURS).sum()), 0),
-        "Annual WKK heat dumped [kWhth]": round(float((df.get("Q_wkk_dumped_kWth", zero) * DT_HOURS).sum()), 0),
-        "Annual thermal storage discharge [kWhth]": round(float((df.get("Q_thermal_storage_discharge_kWth", zero) * DT_HOURS).sum()), 0),
+        "Piek totaal verbruik [kW]": round(float(df["P_load_total_kW"].max()), 2) if "P_load_total_kW" in df else 0.0,
+        "Piek netimport voor batterij [kW]": round(peak_before, 2),
+        "Piek netimport na batterij [kW]": round(peak_after, 2),
+        "Piekverlaging door batterij [kW]": round(max(peak_before - peak_after, 0.0), 2),
+        "Piek boven contractvermogen [kW]": round(peak_contract_excess, 2),
+        "Jaarverbruik elektriciteit [kWh]": round(float((df.get("P_load_total_kW", zero) * DT_HOURS).sum()), 0),
+        "Jaaropwek zonnepanelen [kWh]": round(float((df.get("P_pv_kW", zero) * DT_HOURS).sum()), 0),
+        "Jaaropwek WKK elektrisch [kWh]": round(float((df.get("P_wkk_el_kW", zero) * DT_HOURS).sum()), 0),
+        "Jaarverbruik warmtepomp elektriciteit [kWh]": round(float((df.get("P_hp_el_kW", zero) * DT_HOURS).sum()), 0),
+        "Jaarlijkse netimport [kWh]": round(float((df.get("P_grid_import_kW", zero) * DT_HOURS).sum()), 0),
+        "Jaarlijkse teruglevering [kWh]": round(float((df.get("P_grid_export_kW", zero) * DT_HOURS).sum()), 0),
+        "Jaarlijks laden batterij [kWh]": round(float((df.get("P_battery_charge_kW", zero) * DT_HOURS).sum()), 0),
+        "Jaarlijks ontladen batterij [kWh]": round(float((df.get("P_battery_discharge_kW", zero) * DT_HOURS).sum()), 0),
+        "Jaarlijkse warmtevraag [kWhth]": round(float((df.get("Q_heat_demand_kWth", zero) * DT_HOURS).sum()), 0),
+        "Jaarlijks geleverde warmte [kWhth]": round(float((df.get("Q_heat_supply_total_kWth", zero) * DT_HOURS).sum()), 0),
+        "Jaarlijkse ongedekte warmte [kWhth]": round(float((df.get("Q_heat_unserved_final_kWth", zero) * DT_HOURS).sum()), 0),
+        "Jaarlijkse ketelwarmte [kWhth]": round(float((df.get("Q_boiler_th_kWth", zero) * DT_HOURS).sum()), 0),
+        "Jaarlijkse warmtenetlevering [kWhth]": round(float((df.get("Q_dh_th_kWth", zero) * DT_HOURS).sum()), 0),
+        "Jaarlijkse WKK-warmte benut [kWhth]": round(float((df.get("Q_wkk_used_kWth", zero) * DT_HOURS).sum()), 0),
+        "Jaarlijkse WKK-warmte niet benut [kWhth]": round(float((df.get("Q_wkk_dumped_kWth", zero) * DT_HOURS).sum()), 0),
+        "Jaarlijks ontladen warmteopslag [kWhth]": round(float((df.get("Q_thermal_storage_discharge_kWth", zero) * DT_HOURS).sum()), 0),
     }
     return out
 
@@ -662,14 +967,14 @@ def render_grid_stoplight(df: pd.DataFrame, grid_cap_kW: float | None, cfg=None)
         return grid_eval
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Peak import [kW]", f"{peak:.1f}")
-    c2.metric("Peak / contract", "-" if peak_ratio is None else f"{float(peak_ratio):.2f}x")
-    c3.metric("Exceedance duration [h]", "-" if exceed_h is None else f"{float(exceed_h):.2f}")
-    c4.metric("Exceedance energy [kWh]", "-" if exceed_energy is None else f"{float(exceed_energy):.1f}")
-    c5.metric("Worst continuous exceedance [h]", "-" if worst_run is None else f"{float(worst_run):.2f}")
+    c1.metric("Piek netimport [kW]", f"{peak:.1f}")
+    c2.metric("Piek / contract", "-" if peak_ratio is None else f"{float(peak_ratio):.2f}x")
+    c3.metric("Duur overschrijding [h]", "-" if exceed_h is None else f"{float(exceed_h):.2f}")
+    c4.metric("Energie boven contract [kWh]", "-" if exceed_energy is None else f"{float(exceed_energy):.1f}")
+    c5.metric("Langste overschrijding [h]", "-" if worst_run is None else f"{float(worst_run):.2f}")
 
     if p99 is not None:
-        st.caption(f"P99 grid import: {float(p99):.1f} kW")
+        st.caption(f"P99 netimport: {float(p99):.1f} kW")
 
     return grid_eval
 
@@ -686,7 +991,7 @@ def render_grid_duration_curve(df: pd.DataFrame, grid_cap_kW: float | None) -> N
     )
     duration_long = duration_long.dropna(subset=["power_kW"])
 
-    st.markdown("**Grid load duration curve**")
+    st.markdown("**Duurcurve netbelasting**")
     chart = (
         alt.Chart(duration_long)
         .mark_line(strokeWidth=2)
@@ -710,14 +1015,14 @@ def render_measurement_metadata(metadata: dict | None) -> None:
         return
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Rijen", str(metadata.get("row_count", "-")))
-    c2.metric("Duplicates", str(metadata.get("duplicate_timestamp_count", "-")))
+    c2.metric("Dubbele tijdstippen", str(metadata.get("duplicate_timestamp_count", "-")))
     c3.metric("Detecteerde resolutie", str(metadata.get("detected_resolution") or "-")[:18])
     coverage = metadata.get("coverage_fraction_vs_expected")
-    c4.metric("Coverage", "-" if coverage is None else f"{100.0 * float(coverage):.1f}%")
+    c4.metric("Dekking", "-" if coverage is None else f"{100.0 * float(coverage):.1f}%")
 
     st.caption(
-        f"Bron: {metadata.get('source_path', '-') } · timezone: {metadata.get('timezone', '-') } · "
-        f"expected_resolution: {metadata.get('expected_resolution', '-') } · resample_policy: {metadata.get('resample_policy', '-') }"
+        f"Bron: {metadata.get('source_path', '-') } · tijdzone: {metadata.get('timezone', '-') } · "
+        f"verwachte resolutie: {metadata.get('expected_resolution', '-') } · omrekening: {metadata.get('resample_policy', '-') }"
     )
     warnings = list(metadata.get("warnings", []))
     if warnings:
@@ -736,12 +1041,17 @@ def render_validation_results(validation: dict | None) -> None:
     metrics = validation.get("metrics", {})
     peak = validation.get("peak_summary", {})
 
-    st.markdown("**Calibration metrics**")
+    st.markdown("**Validatiematen**")
+    validation_label_by_period = {
+        "hourly": "Uurwaarden",
+        "daily": "Dagwaarden",
+        "monthly": "Maandwaarden",
+    }
     for label in ["hourly", "daily", "monthly"]:
         m = metrics.get(label, {})
         if not m:
             continue
-        st.markdown(f"***{label.capitalize()}***")
+        st.markdown(f"***{validation_label_by_period[label]}***")
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("N", m.get("n_points", 0))
         c2.metric("RMSE", "-" if pd.isna(m.get("rmse")) else f"{float(m['rmse']):.2f}")
@@ -750,16 +1060,16 @@ def render_validation_results(validation: dict | None) -> None:
         c5.metric("CV(RMSE) [%]", "-" if pd.isna(m.get("cv_rmse_pct")) else f"{float(m['cv_rmse_pct']):.2f}")
 
     if peak:
-        st.markdown("**Peak comparison**")
+        st.markdown("**Vergelijking piekvermogen**")
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Peak simulated [kW]", "-" if pd.isna(peak.get("peak_simulated")) else f"{float(peak['peak_simulated']):.2f}")
-        c2.metric("Peak measured [kW]", "-" if pd.isna(peak.get("peak_measured")) else f"{float(peak['peak_measured']):.2f}")
-        c3.metric("Peak bias [kW]", "-" if pd.isna(peak.get("peak_bias_kW")) else f"{float(peak['peak_bias_kW']):.2f}")
-        c4.metric("Peak bias [%]", "-" if pd.isna(peak.get("peak_bias_pct")) else f"{float(peak['peak_bias_pct']):.2f}")
+        c1.metric("Piek simulatie [kW]", "-" if pd.isna(peak.get("peak_simulated")) else f"{float(peak['peak_simulated']):.2f}")
+        c2.metric("Piek meting [kW]", "-" if pd.isna(peak.get("peak_measured")) else f"{float(peak['peak_measured']):.2f}")
+        c3.metric("Piekverschil [kW]", "-" if pd.isna(peak.get("peak_bias_kW")) else f"{float(peak['peak_bias_kW']):.2f}")
+        c4.metric("Piekverschil [%]", "-" if pd.isna(peak.get("peak_bias_pct")) else f"{float(peak['peak_bias_pct']):.2f}")
 
     aligned = validation.get("aligned")
     if aligned is not None and not aligned.empty:
-        st.markdown("**Simulated vs measured**")
+        st.markdown("**Simulatie en meting**")
         compare_df = aligned[["simulated", "measured"]].reset_index()
         ts_col = compare_df.columns[0]
         compare_long = compare_df.melt(id_vars=ts_col, var_name="series", value_name="value")
@@ -776,28 +1086,28 @@ def render_validation_results(validation: dict | None) -> None:
         )
         st.altair_chart(chart, use_container_width=True)
 
-        st.markdown("**Scatter simulated vs measured**")
+        st.markdown("**Spreiding simulatie en meting**")
         scatter_base = aligned.reset_index()[["measured", "simulated", "residual"]].copy()
         lo = float(min(scatter_base["measured"].min(), scatter_base["simulated"].min()))
         hi = float(max(scatter_base["measured"].max(), scatter_base["simulated"].max()))
         ref_df = pd.DataFrame({"ref_x": [lo, hi], "ref_y": [lo, hi]})
         scatter_chart = alt.layer(
             alt.Chart(scatter_base).mark_circle(size=45).encode(
-                x=alt.X("measured:Q", title="Measured"),
-                y=alt.Y("simulated:Q", title="Simulated"),
+                x=alt.X("measured:Q", title="Meting"),
+                y=alt.Y("simulated:Q", title="Simulatie"),
                 tooltip=[alt.Tooltip("measured:Q", format=".2f"), alt.Tooltip("simulated:Q", format=".2f"), alt.Tooltip("residual:Q", format=".2f")],
             ),
             alt.Chart(ref_df).mark_line(strokeDash=[6, 4]).encode(x="ref_x:Q", y="ref_y:Q")
         ).interactive()
         st.altair_chart(scatter_chart, use_container_width=True)
 
-        st.markdown("**Residual**")
+        st.markdown("**Verschil tussen simulatie en meting**")
         residual_chart = (
             alt.Chart(aligned.reset_index())
             .mark_line()
             .encode(
                 x=alt.X(f"{aligned.reset_index().columns[0]}:T", title="Tijd"),
-                y=alt.Y("residual:Q", title="Residual [sim - meas]"),
+                y=alt.Y("residual:Q", title="Verschil [simulatie - meting]"),
                 tooltip=[alt.Tooltip("residual:Q", format=".2f")],
             )
             .interactive()
@@ -806,7 +1116,7 @@ def render_validation_results(validation: dict | None) -> None:
 
     monthly = validation.get("aggregations", {}).get("monthly")
     if monthly is not None and not monthly.empty:
-        st.markdown("**Monthly totals**")
+        st.markdown("**Maandtotalen**")
         monthly_reset = monthly[["simulated", "measured"]].reset_index()
         ts_col = monthly_reset.columns[0]
         monthly_long = monthly_reset.melt(id_vars=ts_col, var_name="series", value_name="value")
@@ -832,11 +1142,11 @@ def render_sanity_checks(df: pd.DataFrame | None) -> None:
     checks = df.attrs.get("sanity_checks") or {}
     if not checks:
         return
-    st.markdown("**Interne checks**")
+    st.markdown("**Modelchecks**")
     c1, c2, c3 = st.columns(3)
-    c1.metric("Heat balance ok", "Ja" if checks.get("heat_balance_within_tolerance") else "Nee")
+    c1.metric("Warmtebalans klopt", "Ja" if checks.get("heat_balance_within_tolerance") else "Nee")
     c2.metric("Negatieve fysica", "Nee" if checks.get("no_non_physical_negatives") else "Ja")
-    c3.metric("Capacity checks", "Ok" if checks.get("all_capacity_constraints_respected") else "Overschreden")
+    c3.metric("Vermogensgrenzen", "Ok" if checks.get("all_capacity_constraints_respected") else "Overschreden")
     st.caption(
         f"max |heat residual| = {float(checks.get('heat_balance_max_abs_residual_kWth', float('nan'))):.4f} kWth"
     )
@@ -845,7 +1155,7 @@ def render_sanity_checks(df: pd.DataFrame | None) -> None:
     violations = checks.get("capacity_violations") or {}
     active_violations = {k: v for k, v in violations.items() if float(v) > 1e-9}
     if active_violations:
-        st.warning("Capacity violations: " + ", ".join(f"{k}={v:.3f}" for k, v in active_violations.items()))
+        st.warning("Overschreden vermogensgrenzen: " + ", ".join(f"{k}={v:.3f}" for k, v in active_violations.items()))
 
 
 def build_export_bundle(df: pd.DataFrame, measurement_metadata: dict | None = None, validation_result: dict | None = None) -> bytes:
@@ -1059,113 +1369,113 @@ def build_cfg():
 
 
 st.info(
-    f"Weerbron: {WEATHER_PATH.name} · periode {WEATHER_DF.index.min().year}–{WEATHER_DF.index.max().year} · resolutie {SIM_FREQ}."
+    f"Weerbron: {WEATHER_PATH.name}. De simulatie gebruikt deze data om zonopwek, warmtevraag en koeling door het jaar te berekenen."
 )
 
-load_tab, generation_tab, heat_tab, storage_tab, total_tab, validation_tab = st.tabs(["Load", "Generation", "Heat", "Storage", "Total", "Validation"])
+load_tab, generation_tab, heat_tab, storage_tab, total_tab, validation_tab = st.tabs(["Verbruik", "Opwek", "Warmte", "Opslag", "Resultaten", "Validatie"])
 
 
 with load_tab:
     t_def, t_bld, t_pe, t_pr, t_mob, t_ov, t_run = st.tabs([
-        "Defaults voor load",
-        "gebouwmodel",
-        "p_elektro",
+        "Gebouw",
+        "Gebouwdetails",
+        "Elektrisch verbruik",
         "Processen",
         "Mobiliteit",
-        "overig",
-        "Run en results voor alleen load",
+        "Overig verbruik",
+        "Verbruik berekenen",
     ])
 
     with t_def:
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            st.selectbox("Gebouwtype", [x.value for x in BuildingType], key="def_building_type")
+            st.selectbox(label_for("def_building_type"), [x.value for x in BuildingType], key="def_building_type", format_func=choice_label, help=help_for("def_building_type"))
         with c2:
-            st.selectbox("Bouwjaar-klasse", [x.value for x in YearClass], key="def_year_class")
+            st.selectbox(label_for("def_year_class"), [x.value for x in YearClass], key="def_year_class", format_func=choice_label, help=help_for("def_year_class"))
         with c3:
-            st.selectbox("Orientatie", [x.value for x in Orientation8], key="def_orientation")
+            st.selectbox(label_for("def_orientation"), [x.value for x in Orientation8], key="def_orientation", format_func=choice_label, help=help_for("def_orientation"))
         with c4:
-            st.number_input("BVO [m²]", min_value=50.0, step=50.0, key="def_bvo")
+            st.number_input(label_for("def_bvo"), min_value=50.0, step=50.0, key="def_bvo", help=help_for("def_bvo"))
 
         c5, c6, c7, c8 = st.columns(4)
         with c5:
-            st.number_input("Floors", min_value=1, step=1, key="def_floors")
+            st.number_input(label_for("def_floors"), min_value=1, step=1, key="def_floors", help=help_for("def_floors"))
         with c6:
-            st.slider("Window-to-wall ratio", 0.05, 0.80, key="def_wwr")
+            st.slider(label_for("def_wwr"), 0.05, 0.80, key="def_wwr", help=help_for("def_wwr"))
         with c7:
-            st.selectbox("Building shape", [x.value for x in BuildingShape], key="def_shape")
+            st.selectbox(label_for("def_shape"), [x.value for x in BuildingShape], key="def_shape", format_func=choice_label, help=help_for("def_shape"))
         with c8:
-            st.metric("Mapped shape factor", f"{float(SHAPE_FACTOR_BY_SHAPE[BuildingShape(st.session_state['def_shape'])]):.2f}")
+            st.metric(label_for("def_shape_metric"), f"{float(SHAPE_FACTOR_BY_SHAPE[BuildingShape(st.session_state['def_shape'])]):.2f}")
 
-        st.checkbox("Manual override shape factor", key="def_manual_shape")
+        st.checkbox(label_for("def_manual_shape"), key="def_manual_shape", help=help_for("def_manual_shape"))
         if st.session_state["def_manual_shape"]:
-            st.slider("Shape factor", 0.6, 2.0, step=0.05, key="def_shape_manual")
+            st.slider(label_for("def_shape_manual"), 0.6, 2.0, step=0.05, key="def_shape_manual", help=help_for("def_shape_manual"))
 
         cfg0 = build_cfg()
         st.write({
-            "Default p_elektro P_occ [W/m²]": round(float(cfg0.pelektro.p_occ_W_per_m2), 2),
-            "Default p_elektro P_unocc [W/m²]": round(float(cfg0.pelektro.p_unocc_W_per_m2), 2),
+            "Standaard elektrisch vermogen tijdens gebruik [W/m²]": round(float(cfg0.pelektro.p_occ_W_per_m2), 2),
+            "Standaard elektrisch vermogen buiten gebruik [W/m²]": round(float(cfg0.pelektro.p_unocc_W_per_m2), 2),
         })
 
     with t_bld:
-        st.checkbox("Enable overrides", key="bld_enable")
+        st.checkbox(label_for("bld_enable"), key="bld_enable", help=help_for("bld_enable"))
         if st.session_state["bld_enable"]:
-            st.checkbox("Override occupancy schedule", key="bld_sched_enable")
+            st.checkbox(label_for("bld_sched_enable"), key="bld_sched_enable", help=help_for("bld_sched_enable"))
             if st.session_state["bld_sched_enable"]:
                 schedule_editor("bld_sched")
 
-            st.subheader("Setpoints")
+            st.subheader("Temperatuurinstellingen")
             c1, c2, c3, c4 = st.columns(4)
             with c1:
-                st.number_input("t_heat_set OCC [°C]", value=20.0, step=0.5, key="bld_t_heat_occ")
+                st.number_input(label_for("bld_t_heat_occ"), value=20.0, step=0.5, key="bld_t_heat_occ", help=help_for("bld_t_heat_occ"))
             with c2:
-                st.number_input("t_heat_set UNOCC [°C]", value=16.0, step=0.5, key="bld_t_heat_unocc")
+                st.number_input(label_for("bld_t_heat_unocc"), value=16.0, step=0.5, key="bld_t_heat_unocc", help=help_for("bld_t_heat_unocc"))
             with c3:
-                st.number_input("t_cool_set OCC [°C]", value=24.0, step=0.5, key="bld_t_cool_occ")
+                st.number_input(label_for("bld_t_cool_occ"), value=24.0, step=0.5, key="bld_t_cool_occ", help=help_for("bld_t_cool_occ"))
             with c4:
-                st.number_input("t_cool_set UNOCC [°C]", value=27.0, step=0.5, key="bld_t_cool_unocc")
+                st.number_input(label_for("bld_t_cool_unocc"), value=27.0, step=0.5, key="bld_t_cool_unocc", help=help_for("bld_t_cool_unocc"))
 
-            st.subheader("Seasonal COP / EER")
+            st.subheader("Rendement verwarming en koeling")
             c1, c2, c3, c4 = st.columns(4)
             with c1:
-                st.number_input("COP winter", value=3.6, step=0.1, key="bld_cop_winter")
+                st.number_input(label_for("bld_cop_winter"), value=3.6, step=0.1, key="bld_cop_winter", help=help_for("bld_cop_winter"))
             with c2:
-                st.number_input("COP spring", value=4.1, step=0.1, key="bld_cop_spring")
+                st.number_input(label_for("bld_cop_spring"), value=4.1, step=0.1, key="bld_cop_spring", help=help_for("bld_cop_spring"))
             with c3:
-                st.number_input("COP summer", value=4.4, step=0.1, key="bld_cop_summer")
+                st.number_input(label_for("bld_cop_summer"), value=4.4, step=0.1, key="bld_cop_summer", help=help_for("bld_cop_summer"))
             with c4:
-                st.number_input("COP autumn", value=4.0, step=0.1, key="bld_cop_autumn")
+                st.number_input(label_for("bld_cop_autumn"), value=4.0, step=0.1, key="bld_cop_autumn", help=help_for("bld_cop_autumn"))
 
             c5, c6, c7, c8 = st.columns(4)
             with c5:
-                st.number_input("EER winter", value=3.3, step=0.1, key="bld_eer_winter")
+                st.number_input(label_for("bld_eer_winter"), value=3.3, step=0.1, key="bld_eer_winter", help=help_for("bld_eer_winter"))
             with c6:
-                st.number_input("EER spring", value=3.5, step=0.1, key="bld_eer_spring")
+                st.number_input(label_for("bld_eer_spring"), value=3.5, step=0.1, key="bld_eer_spring", help=help_for("bld_eer_spring"))
             with c7:
-                st.number_input("EER summer", value=3.1, step=0.1, key="bld_eer_summer")
+                st.number_input(label_for("bld_eer_summer"), value=3.1, step=0.1, key="bld_eer_summer", help=help_for("bld_eer_summer"))
             with c8:
-                st.number_input("EER autumn", value=3.4, step=0.1, key="bld_eer_autumn")
+                st.number_input(label_for("bld_eer_autumn"), value=3.4, step=0.1, key="bld_eer_autumn", help=help_for("bld_eer_autumn"))
 
-            st.subheader("HVAC / gebouw")
+            st.subheader("Ventilatie, glas en zon")
             c9, c10, c11, c12 = st.columns(4)
             with c9:
-                st.slider("WTW [-]", 0.0, 0.95, 0.80, 0.01, key="bld_eta_wtw")
+                st.slider(label_for("bld_eta_wtw"), 0.0, 0.95, 0.80, 0.01, key="bld_eta_wtw", help=help_for("bld_eta_wtw"))
             with c10:
-                st.number_input("qv10 [m³/h per m²]", value=0.40, step=0.1, key="bld_qv10")
+                st.number_input(label_for("bld_qv10"), value=0.40, step=0.1, key="bld_qv10", help=help_for("bld_qv10"))
             with c11:
-                st.number_input("g-value [-]", value=0.50, step=0.01, key="bld_g_value")
+                st.number_input(label_for("bld_g_value"), value=0.50, step=0.01, key="bld_g_value", help=help_for("bld_g_value"))
             with c12:
-                st.number_input("Shading factor [-]", value=0.80, step=0.01, key="bld_shading_factor")
+                st.number_input(label_for("bld_shading_factor"), value=0.80, step=0.01, key="bld_shading_factor", help=help_for("bld_shading_factor"))
 
         cfg = build_cfg()
         prev_df, _, _, _ = run_load_simulation(cfg, weather=WEATHER_DF.iloc[:24 * 7])
-        preview_week_chart(prev_df, ["P_heat_kW", "P_cool_kW"], "Preview gebouwmodel")
+        preview_week_chart(prev_df, ["P_heat_kW", "P_cool_kW"], "Voorbeeld gebouwvraag")
 
     with t_pe:
-        st.checkbox("Enable default override", key="pe_enable")
+        st.checkbox(label_for("pe_enable"), key="pe_enable", help=help_for("pe_enable"))
         if st.session_state["pe_enable"]:
-            st.number_input("Default P_occ [W/m²]", value=10.0, step=0.5, key="pe_occ")
-            st.number_input("Default P_unocc [W/m²]", value=3.0, step=0.5, key="pe_unocc")
+            st.number_input(label_for("pe_occ"), value=10.0, step=0.5, key="pe_occ", help=help_for("pe_occ"))
+            st.number_input(label_for("pe_unocc"), value=3.0, step=0.5, key="pe_unocc", help=help_for("pe_unocc"))
         edit_occ_subloads("pelektro_subloads", "pe", 5.0, 1.0)
 
         pe_cfg = build_cfg()
@@ -1174,13 +1484,13 @@ with load_tab:
             weather=WEATHER_DF.iloc[:24 * 7],
             pelektro_subloads=subload_payload("pelektro_subloads", "occ"),
         )
-        preview_week_chart(pe_df, ["P_elektro_kW"], "Preview p_elektro")
+        preview_week_chart(pe_df, ["P_elektro_kW"], "Voorbeeld elektrisch verbruik")
 
     with t_pr:
-        st.checkbox("Enable single-block override", key="pr_enable")
+        st.checkbox(label_for("pr_enable"), key="pr_enable", help=help_for("pr_enable"))
         if st.session_state["pr_enable"]:
-            st.number_input("Default P_process [kW]", value=0.0, step=1.0, key="pr_pp")
-            st.number_input("Default P_idle [kW]", value=0.0, step=1.0, key="pr_pi")
+            st.number_input(label_for("pr_pp"), value=0.0, step=1.0, key="pr_pp", help=help_for("pr_pp"))
+            st.number_input(label_for("pr_pi"), value=0.0, step=1.0, key="pr_pi", help=help_for("pr_pi"))
         edit_process_subloads()
 
         pr_cfg = build_cfg()
@@ -1189,26 +1499,26 @@ with load_tab:
             weather=WEATHER_DF.iloc[:24 * 7],
             pprocess_subloads=subload_payload("pprocess_subloads", "process"),
         )
-        preview_week_chart(pr_df, ["P_process_kW"], "Preview processen")
+        preview_week_chart(pr_df, ["P_process_kW"], "Voorbeeld procesverbruik")
 
     with t_mob:
-        st.number_input("Aantal auto's", min_value=0, value=0, step=1, key="mob_n_cars")
-        st.number_input("Charger max [kW/car]", min_value=1.0, value=11.0, step=1.0, key="mob_p_charger_max")
-        st.slider("Simultaneous charging fraction", 0.0, 1.0, 0.30, 0.05, key="mob_duty_cycle")
-        st.number_input("Mobility site cap [kW] (0 = none)", min_value=0.0, value=0.0, step=5.0, key="mob_site_cap")
+        st.number_input(label_for("mob_n_cars"), min_value=0, value=0, step=1, key="mob_n_cars", help=help_for("mob_n_cars"))
+        st.number_input(label_for("mob_p_charger_max"), min_value=1.0, value=11.0, step=1.0, key="mob_p_charger_max", help=help_for("mob_p_charger_max"))
+        st.slider(label_for("mob_duty_cycle"), 0.0, 1.0, 0.30, 0.05, key="mob_duty_cycle", help=help_for("mob_duty_cycle"))
+        st.number_input(label_for("mob_site_cap"), min_value=0.0, value=0.0, step=5.0, key="mob_site_cap", help=help_for("mob_site_cap"))
 
         mob_cfg = build_cfg()
         mob_df, _, _, _ = run_load_simulation(
             mob_cfg,
             weather=WEATHER_DF.iloc[:24 * 7],
         )
-        preview_week_chart(mob_df, ["P_mobility_kW"], "Preview mobiliteit")
+        preview_week_chart(mob_df, ["P_mobility_kW"], "Voorbeeld mobiliteit")
 
     with t_ov:
-        st.checkbox("Enable default override", key="ov_enable")
+        st.checkbox(label_for("ov_enable"), key="ov_enable", help=help_for("ov_enable"))
         if st.session_state["ov_enable"]:
-            st.number_input("Default P_occ [W/m²]", value=2.0, step=0.2, key="ov_occ")
-            st.number_input("Default P_unocc [W/m²]", value=0.5, step=0.2, key="ov_unocc")
+            st.number_input(label_for("ov_occ"), value=2.0, step=0.2, key="ov_occ", help=help_for("ov_occ"))
+            st.number_input(label_for("ov_unocc"), value=0.5, step=0.2, key="ov_unocc", help=help_for("ov_unocc"))
         edit_occ_subloads("poverig_subloads", "ov", 1.0, 0.2)
 
         ov_cfg = build_cfg()
@@ -1217,10 +1527,10 @@ with load_tab:
             weather=WEATHER_DF.iloc[:24 * 7],
             poverig_subloads=subload_payload("poverig_subloads", "occ"),
         )
-        preview_week_chart(ov_df, ["P_overig_kW"], "Preview overig")
+        preview_week_chart(ov_df, ["P_overig_kW"], "Voorbeeld overig verbruik")
 
     with t_run:
-        if st.button("Run load", type="primary"):
+        if st.button("Bereken verbruik", type="primary", help="Wat: start de verbruiksberekening. In het model worden gebouw, elektrische lasten, processen en mobiliteit samengevoegd. Effect: resultaten worden vernieuwd met de huidige instellingen."):
             cfg = build_cfg()
             df, fig_heat, fig_cool, _ = run_load_simulation(
                 cfg,
@@ -1237,61 +1547,61 @@ with load_tab:
             st.dataframe(df.head(200))
 
         if st.session_state["last_load_df"] is not None:
-            preview_week_chart(st.session_state["last_load_df"], ["P_load_total_kW", "P_heat_kW", "P_cool_kW"], "Laatste load-run")
+            preview_week_chart(st.session_state["last_load_df"], ["P_load_total_kW", "P_heat_kW", "P_cool_kW"], "Laatste verbruiksberekening")
 
 
 with generation_tab:
-    g_pv, g_wkk, g_grid, g_run = st.tabs(["PV", "WKK", "Grid", "run en results voor generation"])
+    g_pv, g_wkk, g_grid, g_run = st.tabs(["Zonnepanelen", "WKK", "Net", "Opwek berekenen"])
 
     with g_pv:
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            st.checkbox("PV enabled", key="pv_enabled")
+            st.checkbox(label_for("pv_enabled"), key="pv_enabled", help=help_for("pv_enabled"))
         with c2:
-            st.number_input("Installed capacity [kWp]", min_value=0.0, step=10.0, key="pv_cap")
+            st.number_input(label_for("pv_cap"), min_value=0.0, step=10.0, key="pv_cap", help=help_for("pv_cap"))
         with c3:
-            st.number_input("Tilt [deg]", min_value=0.0, max_value=90.0, step=1.0, key="pv_tilt")
+            st.number_input(label_for("pv_tilt"), min_value=0.0, max_value=90.0, step=1.0, key="pv_tilt", help=help_for("pv_tilt"))
         with c4:
-            st.number_input("Azimuth [deg]", min_value=0.0, max_value=360.0, step=5.0, key="pv_azimuth")
+            st.number_input(label_for("pv_azimuth"), min_value=0.0, max_value=360.0, step=5.0, key="pv_azimuth", help=help_for("pv_azimuth"))
 
         c5, c6, c7, c8 = st.columns(4)
         with c5:
-            st.number_input("Performance ratio", min_value=0.0, max_value=1.2, step=0.01, key="pv_pr")
+            st.number_input(label_for("pv_pr"), min_value=0.0, max_value=1.2, step=0.01, key="pv_pr", help=help_for("pv_pr"))
         with c6:
-            st.number_input("Inverter efficiency", min_value=0.0, max_value=1.0, step=0.01, key="pv_inv_eff")
+            st.number_input(label_for("pv_inv_eff"), min_value=0.0, max_value=1.0, step=0.01, key="pv_inv_eff", help=help_for("pv_inv_eff"))
         with c7:
-            st.number_input("Temp coeff [/°C]", step=0.001, key="pv_temp_coeff")
+            st.number_input(label_for("pv_temp_coeff"), step=0.001, key="pv_temp_coeff", help=help_for("pv_temp_coeff"))
         with c8:
-            st.number_input("Site cap [kW] (0 = none)", min_value=0.0, step=10.0, key="pv_site_cap")
+            st.number_input(label_for("pv_site_cap"), min_value=0.0, step=10.0, key="pv_site_cap", help=help_for("pv_site_cap"))
 
         cfg = build_cfg()
         pv_df = simulate_pv(WEATHER_DF.index, cfg.pv, WEATHER_DF)
-        preview_week_chart(pv_df, ["P_pv_kW"], "Preview PV")
+        preview_week_chart(pv_df, ["P_pv_kW"], "Voorbeeld zonnepanelen")
         st.write({
-            "PV enabled": bool(cfg.pv.enabled),
-            "Installed capacity [kWp]": float(cfg.pv.installed_capacity_kWp),
-            "Max GHI [W/m²]": float(WEATHER_DF["ghi_Wm2"].max()) if "ghi_Wm2" in WEATHER_DF.columns else None,
-            "Peak PV [kW]": round(float(pv_df["P_pv_kW"].max()), 2),
-            "Annual PV [kWh]": round(float((pv_df["P_pv_kW"] * DT_HOURS).sum()), 0),
+            "Zonnepanelen actief": bool(cfg.pv.enabled),
+            "Vermogen zonnepanelen [kWp]": float(cfg.pv.installed_capacity_kWp),
+            "Maximale globale zoninstraling [W/m²]": float(WEATHER_DF["ghi_Wm2"].max()) if "ghi_Wm2" in WEATHER_DF.columns else None,
+            "Piekvermogen zonnepanelen [kW]": round(float(pv_df["P_pv_kW"].max()), 2),
+            "Jaaropwek zonnepanelen [kWh]": round(float((pv_df["P_pv_kW"] * DT_HOURS).sum()), 0),
         })
 
     with g_wkk:
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.checkbox("WKK enabled", key="wkk_enabled")
+            st.checkbox(label_for("wkk_enabled"), key="wkk_enabled", help=help_for("wkk_enabled"))
         with c2:
-            st.number_input("Rated electrical power [kW]", min_value=0.0, step=10.0, key="wkk_p_rated")
+            st.number_input(label_for("wkk_p_rated"), min_value=0.0, step=10.0, key="wkk_p_rated", help=help_for("wkk_p_rated"))
         with c3:
-            st.slider("Min load fraction", 0.0, 1.0, 0.0, 0.05, key="wkk_min_frac")
+            st.slider(label_for("wkk_min_frac"), 0.0, 1.0, 0.0, 0.05, key="wkk_min_frac", help=help_for("wkk_min_frac"))
 
         c4, c5, c6 = st.columns(3)
         with c4:
-            st.number_input("Electrical efficiency", min_value=0.01, max_value=1.0, step=0.01, key="wkk_el_eff")
+            st.number_input(label_for("wkk_el_eff"), min_value=0.01, max_value=1.0, step=0.01, key="wkk_el_eff", help=help_for("wkk_el_eff"))
         with c5:
-            st.number_input("Thermal efficiency", min_value=0.0, max_value=1.0, step=0.01, key="wkk_th_eff")
+            st.number_input(label_for("wkk_th_eff"), min_value=0.0, max_value=1.0, step=0.01, key="wkk_th_eff", help=help_for("wkk_th_eff"))
         with c6:
             st.selectbox(
-                "Dispatch mode",
+                label_for("wkk_dispatch_mode"),
                 [
                     "electricity_led",
                     "thermal_led",
@@ -1302,6 +1612,8 @@ with generation_tab:
                     "off",
                 ],
                 key="wkk_dispatch_mode",
+                format_func=choice_label,
+                help=help_for("wkk_dispatch_mode"),
             )
 
         cfg = build_cfg()
@@ -1310,19 +1622,19 @@ with generation_tab:
             index=WEATHER_DF.index,
         )
         wkk_df = dispatch_wkk(WEATHER_DF.index, cfg.wkk, demand_df)
-        preview_week_chart(wkk_df, ["P_wkk_el_kW", "P_wkk_th_kW", "Q_wkk_used_kWth"], "Preview WKK")
+        preview_week_chart(wkk_df, ["P_wkk_el_kW", "P_wkk_th_kW", "Q_wkk_used_kWth"], "Voorbeeld WKK")
         st.write({
-            "Peak WKK el [kW]": round(float(wkk_df["P_wkk_el_kW"].max()), 2),
-            "Peak WKK th [kWth]": round(float(wkk_df["P_wkk_th_kW"].max()), 2),
-            "Annual WKK fuel input [kWh]": round(float((wkk_df["F_wkk_fuel_kWh_per_h"] * DT_HOURS).sum()), 0),
-            "Annual WKK useful heat [kWhth]": round(float((wkk_df["Q_wkk_used_kWth"] * DT_HOURS).sum()), 0),
+            "Piekvermogen WKK elektrisch [kW]": round(float(wkk_df["P_wkk_el_kW"].max()), 2),
+            "Piekvermogen WKK warmte [kWth]": round(float(wkk_df["P_wkk_th_kW"].max()), 2),
+            "Jaarlijkse brandstofinvoer WKK [kWh]": round(float((wkk_df["F_wkk_fuel_kWh_per_h"] * DT_HOURS).sum()), 0),
+            "Jaarlijkse nuttige WKK-warmte [kWhth]": round(float((wkk_df["Q_wkk_used_kWth"] * DT_HOURS).sum()), 0),
         })
 
     with g_grid:
-        st.number_input("Grid contract power [kW]", min_value=0.0, step=5.0, key="grid_cap_kW")
+        st.number_input(label_for("grid_cap_kW"), min_value=0.0, step=5.0, key="grid_cap_kW", help=help_for("grid_cap_kW"))
         st.caption("0 = geen expliciete begrenzing in de simulatie.")
         st.write({
-            "Configured grid contract power [kW]": float(st.session_state["grid_cap_kW"])
+            "Ingesteld contractvermogen [kW]": float(st.session_state["grid_cap_kW"])
         })
 
     with g_run:
@@ -1342,106 +1654,107 @@ with generation_tab:
             st.line_chart(first_week(gen_df)[cols])
 
         st.write({
-            "Peak PV [kW]": round(float(gen_df["P_pv_kW"].max()), 2) if "P_pv_kW" in gen_df else 0.0,
-            "Peak WKK [kW]": round(float(gen_df["P_wkk_el_kW"].max()), 2) if "P_wkk_el_kW" in gen_df else 0.0,
-            "Peak total generation [kW]": round(float(gen_df["P_generation_total_kW"].max()), 2) if "P_generation_total_kW" in gen_df else 0.0,
-            "Annual PV [kWh]": round(float((gen_df["P_pv_kW"] * DT_HOURS).sum()), 0) if "P_pv_kW" in gen_df else 0.0,
-            "Annual WKK [kWh]": round(float((gen_df["P_wkk_el_kW"] * DT_HOURS).sum()), 0) if "P_wkk_el_kW" in gen_df else 0.0,
+            "Piek zonnepanelen [kW]": round(float(gen_df["P_pv_kW"].max()), 2) if "P_pv_kW" in gen_df else 0.0,
+            "Piek WKK [kW]": round(float(gen_df["P_wkk_el_kW"].max()), 2) if "P_wkk_el_kW" in gen_df else 0.0,
+            "Piek totale opwek [kW]": round(float(gen_df["P_generation_total_kW"].max()), 2) if "P_generation_total_kW" in gen_df else 0.0,
+            "Jaaropwek zonnepanelen [kWh]": round(float((gen_df["P_pv_kW"] * DT_HOURS).sum()), 0) if "P_pv_kW" in gen_df else 0.0,
+            "Jaaropwek WKK [kWh]": round(float((gen_df["P_wkk_el_kW"] * DT_HOURS).sum()), 0) if "P_wkk_el_kW" in gen_df else 0.0,
         })
 
 
 with heat_tab:
-    h_hp, h_boiler, h_dh = st.tabs(["Heat pump", "Boiler", "District heat"])
+    h_hp, h_boiler, h_dh = st.tabs(["Warmtepomp", "Ketel", "Warmtenet"])
 
     with h_hp:
-        st.checkbox("Heat pump enabled", key="hp_enabled")
+        st.checkbox(label_for("hp_enabled"), key="hp_enabled", help=help_for("hp_enabled"))
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.number_input("Capacity [kWth]", min_value=0.0, step=10.0, key="hp_capacity")
+            st.number_input(label_for("hp_capacity"), min_value=0.0, step=10.0, key="hp_capacity", help=help_for("hp_capacity"))
         with c2:
-            st.selectbox("COP mode", ["fixed", "seasonal", "weather_dependent"], key="hp_cop_mode")
+            st.selectbox(label_for("hp_cop_mode"), ["fixed", "seasonal", "weather_dependent"], key="hp_cop_mode", format_func=choice_label, help=help_for("hp_cop_mode"))
         with c3:
-            st.number_input("Nominal COP", min_value=0.1, step=0.1, key="hp_cop_nominal")
+            st.number_input(label_for("hp_cop_nominal"), min_value=0.1, step=0.1, key="hp_cop_nominal", help=help_for("hp_cop_nominal"))
         c4, c5 = st.columns(2)
         with c4:
-            st.slider("Min part load fraction", 0.0, 1.0, 0.0, 0.05, key="hp_min_frac")
+            st.slider(label_for("hp_min_frac"), 0.0, 1.0, 0.0, 0.05, key="hp_min_frac", help=help_for("hp_min_frac"))
         with c5:
-            st.number_input("Electric site cap [kW] (0 = none)", min_value=0.0, step=5.0, key="hp_site_cap")
+            st.number_input(label_for("hp_site_cap"), min_value=0.0, step=5.0, key="hp_site_cap", help=help_for("hp_site_cap"))
 
     with h_boiler:
-        st.checkbox("Boiler enabled", key="boiler_enabled")
+        st.checkbox(label_for("boiler_enabled"), key="boiler_enabled", help=help_for("boiler_enabled"))
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            st.number_input("Capacity [kWth]", min_value=0.0, step=10.0, key="boiler_capacity")
+            st.number_input(label_for("boiler_capacity"), min_value=0.0, step=10.0, key="boiler_capacity", help=help_for("boiler_capacity"))
         with c2:
-            st.number_input("Thermal efficiency", min_value=0.01, max_value=1.0, step=0.01, key="boiler_eff")
+            st.number_input(label_for("boiler_eff"), min_value=0.01, max_value=1.0, step=0.01, key="boiler_eff", help=help_for("boiler_eff"))
         with c3:
-            st.slider("Min part load fraction", 0.0, 1.0, 0.0, 0.05, key="boiler_min_frac")
+            st.slider(label_for("boiler_min_frac"), 0.0, 1.0, 0.0, 0.05, key="boiler_min_frac", help=help_for("boiler_min_frac"))
         with c4:
-            st.selectbox("Fuel type", ["gas", "biogas", "hydrogen", "generic"], key="boiler_fuel_type")
+            st.selectbox(label_for("boiler_fuel_type"), ["gas", "biogas", "hydrogen", "generic"], key="boiler_fuel_type", format_func=choice_label, help=help_for("boiler_fuel_type"))
 
     with h_dh:
-        st.checkbox("District heat enabled", key="dh_enabled")
+        st.checkbox(label_for("dh_enabled"), key="dh_enabled", help=help_for("dh_enabled"))
         c1, c2 = st.columns(2)
         with c1:
-            st.number_input("Capacity [kWth]", min_value=0.0, step=10.0, key="dh_capacity")
+            st.number_input(label_for("dh_capacity"), min_value=0.0, step=10.0, key="dh_capacity", help=help_for("dh_capacity"))
         with c2:
-            st.number_input("Tariff placeholder", min_value=0.0, step=0.01, key="dh_tariff")
+            st.number_input(label_for("dh_tariff"), min_value=0.0, step=0.01, key="dh_tariff", help=help_for("dh_tariff"))
 
 
 with storage_tab:
-    s_bat, s_heat = st.tabs(["Batterijen", "Warmte opslag"])
+    s_bat, s_heat = st.tabs(["Batterijen", "Warmteopslag"])
 
     with s_bat:
-        st.checkbox("Battery enabled", key="bat_enabled")
+        st.checkbox(label_for("bat_enabled"), key="bat_enabled", help=help_for("bat_enabled"))
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.number_input("Capacity [kWh]", min_value=0.0, step=10.0, key="bat_capacity")
-            st.number_input("Initial SoC [%]", min_value=0.0, max_value=100.0, step=5.0, key="bat_soc_init")
+            st.number_input(label_for("bat_capacity"), min_value=0.0, step=10.0, key="bat_capacity", help=help_for("bat_capacity"))
+            st.number_input(label_for("bat_soc_init"), min_value=0.0, max_value=100.0, step=5.0, key="bat_soc_init", help=help_for("bat_soc_init"))
         with c2:
-            st.number_input("Charge power [kW]", min_value=0.0, step=10.0, key="bat_p_charge")
-            st.number_input("Minimum SoC [%]", min_value=0.0, max_value=100.0, step=5.0, key="bat_soc_min")
+            st.number_input(label_for("bat_p_charge"), min_value=0.0, step=10.0, key="bat_p_charge", help=help_for("bat_p_charge"))
+            st.number_input(label_for("bat_soc_min"), min_value=0.0, max_value=100.0, step=5.0, key="bat_soc_min", help=help_for("bat_soc_min"))
         with c3:
-            st.number_input("Discharge power [kW]", min_value=0.0, step=10.0, key="bat_p_discharge")
-            st.number_input("Maximum SoC [%]", min_value=0.0, max_value=100.0, step=5.0, key="bat_soc_max")
-        st.number_input("Roundtrip efficiency", min_value=0.0, max_value=1.0, step=0.01, key="bat_eff")
+            st.number_input(label_for("bat_p_discharge"), min_value=0.0, step=10.0, key="bat_p_discharge", help=help_for("bat_p_discharge"))
+            st.number_input(label_for("bat_soc_max"), min_value=0.0, max_value=100.0, step=5.0, key="bat_soc_max", help=help_for("bat_soc_max"))
+        st.number_input(label_for("bat_eff"), min_value=0.0, max_value=1.0, step=0.01, key="bat_eff", help=help_for("bat_eff"))
         st.selectbox(
-            "Charge strategy",
+            label_for("bat_charge_strategy"),
             options=["surplus_only", "grid_headroom"],
             format_func=lambda x: {
                 "surplus_only": "Alleen laden met lokaal overschot (PV/WKK)",
                 "grid_headroom": "Laden vanuit net tot contractvermogen",
             }[x],
             key="bat_charge_strategy",
+            help=help_for("bat_charge_strategy"),
         )
-        st.caption("Actieve dispatch: self-consumption. De batterij laadt bij overschot en ontlaadt bij resterende netvraag.")
+        st.caption("De batterij laadt bij overschot en ontlaadt bij resterende netvraag.")
 
     with s_heat:
-        st.checkbox("Thermal storage enabled", key="th_enabled")
+        st.checkbox(label_for("th_enabled"), key="th_enabled", help=help_for("th_enabled"))
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.number_input("Capacity [kWh_th]", min_value=0.0, step=10.0, key="th_capacity")
-            st.number_input("Initial SoC [%]", min_value=0.0, max_value=100.0, step=5.0, key="th_soc_init")
+            st.number_input(label_for("th_capacity"), min_value=0.0, step=10.0, key="th_capacity", help=help_for("th_capacity"))
+            st.number_input(label_for("th_soc_init"), min_value=0.0, max_value=100.0, step=5.0, key="th_soc_init", help=help_for("th_soc_init"))
         with c2:
-            st.number_input("Charge power [kWth]", min_value=0.0, step=10.0, key="th_p_charge")
-            st.number_input("Minimum SoC [%]", min_value=0.0, max_value=100.0, step=5.0, key="th_soc_min")
+            st.number_input(label_for("th_p_charge"), min_value=0.0, step=10.0, key="th_p_charge", help=help_for("th_p_charge"))
+            st.number_input(label_for("th_soc_min"), min_value=0.0, max_value=100.0, step=5.0, key="th_soc_min", help=help_for("th_soc_min"))
         with c3:
-            st.number_input("Discharge power [kWth]", min_value=0.0, step=10.0, key="th_p_discharge")
-            st.number_input("Maximum SoC [%]", min_value=0.0, max_value=100.0, step=5.0, key="th_soc_max")
+            st.number_input(label_for("th_p_discharge"), min_value=0.0, step=10.0, key="th_p_discharge", help=help_for("th_p_discharge"))
+            st.number_input(label_for("th_soc_max"), min_value=0.0, max_value=100.0, step=5.0, key="th_soc_max", help=help_for("th_soc_max"))
         c4, c5, c6 = st.columns(3)
         with c4:
-            st.number_input("Loss factor per hour", min_value=0.0, max_value=1.0, step=0.01, key="th_loss")
+            st.number_input(label_for("th_loss"), min_value=0.0, max_value=1.0, step=0.01, key="th_loss", help=help_for("th_loss"))
         with c5:
-            st.number_input("Charge efficiency", min_value=0.01, max_value=1.0, step=0.01, key="th_eff_charge")
+            st.number_input(label_for("th_eff_charge"), min_value=0.01, max_value=1.0, step=0.01, key="th_eff_charge", help=help_for("th_eff_charge"))
         with c6:
-            st.number_input("Discharge efficiency", min_value=0.01, max_value=1.0, step=0.01, key="th_eff_discharge")
+            st.number_input(label_for("th_eff_discharge"), min_value=0.01, max_value=1.0, step=0.01, key="th_eff_discharge", help=help_for("th_eff_discharge"))
         st.caption("Thermische opslag is nu onderdeel van de warmteketen in de totale simulatie.")
 
 
 with total_tab:
-    st.write("Hier run je de totale simulatie en zie je vooral het resterende vermogen uit het net.")
+    st.write("Bereken het totale energiesysteem en bekijk hoeveel vermogen nog uit het net nodig is.")
 
-    if st.button("Run total", type="primary"):
+    if st.button("Bereken totaal", type="primary", help="Wat: start de totale simulatie. In het model worden verbruik, opwek, warmtebronnen en opslag gecombineerd. Effect: alle resultaatgrafieken en KPI's worden vernieuwd."):
         try:
             cfg = build_cfg()
             df, fig_heat, fig_balance, _ = run_energy_system_simulation(
@@ -1456,32 +1769,33 @@ with total_tab:
             contract = safe_contract_value(st.session_state.get("grid_cap_kW"))
             render_grid_stoplight(df, contract, cfg=cfg)
             kpis = energy_kpis(df)
+            heat_terms = ("warmte", "ketel", "warmtenet")
             c1, c2 = st.columns(2)
             with c1:
-                st.write({k: v for k, v in kpis.items() if "heat" not in k.lower() and "boiler" not in k.lower() and "district" not in k.lower()})
+                st.write({k: v for k, v in kpis.items() if not any(term in k.lower() for term in heat_terms)})
             with c2:
-                st.write({k: v for k, v in kpis.items() if "heat" in k.lower() or "boiler" in k.lower() or "district" in k.lower()})
+                st.write({k: v for k, v in kpis.items() if any(term in k.lower() for term in heat_terms)})
 
             render_sanity_checks(df)
-            st.markdown("### Consultant summary")
+            st.markdown("### Samenvatting voor consultant")
             st.json(consultant_summary(df, contract))
-            st.markdown("### Grid stress indicatoren")
+            st.markdown("### Indicatoren netbelasting")
 
             m = compute_grid_stress_metrics(df, contract)
 
             c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Hours > 90%", f"{m.get('hours_above_90', 0):.1f} h")
-            c2.metric("Hours > 95%", f"{m.get('hours_above_95', 0):.1f} h")
-            c3.metric("Hours > 100%", f"{m.get('hours_above_100', 0):.1f} h")
-            c4.metric("Avg headroom", f"{m.get('avg_headroom_kW', 0):.1f} kW")
-            c5.metric("Load factor", f"{m.get('load_factor', 0):.2f}")
+            c1.metric("Uren > 90%", f"{m.get('hours_above_90', 0):.1f} h")
+            c2.metric("Uren > 95%", f"{m.get('hours_above_95', 0):.1f} h")
+            c3.metric("Uren > 100%", f"{m.get('hours_above_100', 0):.1f} h")
+            c4.metric("Gemiddelde netruimte", f"{m.get('avg_headroom_kW', 0):.1f} kW")
+            c5.metric("Benuttingsgraad", f"{m.get('load_factor', 0):.2f}")
 
             if m.get("self_sufficiency") is not None:
-                st.caption(f"Self-sufficiency: {m['self_sufficiency']*100:.1f}%")
+                st.caption(f"Zelfvoorzieningsgraad: {m['self_sufficiency']*100:.1f}%")
 
 
 
-            st.markdown("### Worst grid week (netbelasting)")
+            st.markdown("### Zwaarste week voor het elektriciteitsnet")
 
             if "P_grid_import_kW" in df.columns:
                 weekly_peak = df["P_grid_import_kW"].rolling(168).max()
@@ -1515,7 +1829,7 @@ with total_tab:
             worst_week_idx = find_worst_grid_week(df)
             worst_week_cols = [c for c in ["P_grid_import_kW", "P_grid_contract_excess_kW", "P_grid_export_kW"] if c in df.columns]
             if len(worst_week_idx) > 0 and worst_week_cols:
-                st.markdown("**Worst grid week – diagnostics**")
+                st.markdown("**Diagnostiek zwaarste netweek**")
                 st.line_chart(df.loc[worst_week_idx, worst_week_cols])
 
             render_grid_duration_curve(
@@ -1527,7 +1841,7 @@ with total_tab:
             st.pyplot(fig_balance, clear_figure=True)
             heat_cols = [c for c in ["Q_heat_demand_kWth", "Q_hp_th_kWth", "Q_wkk_used_kWth", "Q_boiler_th_kWth", "Q_dh_th_kWth", "Q_thermal_storage_discharge_kWth", "Q_heat_unserved_final_kWth"] if c in df.columns]
             if heat_cols:
-                st.markdown("**Heat balance – first week**")
+                st.markdown("**Warmtebalans eerste week**")
                 st.line_chart(first_week(df)[heat_cols])
             st.dataframe(df.head(200))
             export_zip = build_export_bundle(
@@ -1538,20 +1852,22 @@ with total_tab:
             c_export1, c_export2 = st.columns(2)
             with c_export1:
                 st.download_button(
-                    "Download CSV",
+                    "Download resultaten als CSV",
                     df.to_csv().encode("utf-8"),
                     file_name="energy_system_results.csv",
                     mime="text/csv",
+                    help="Wat: downloadt de resultaatreeks. In het model verandert dit niets. Effect: je kunt de berekening buiten de app analyseren.",
                 )
             with c_export2:
                 st.download_button(
-                    "Download export bundle (.zip)",
+                    "Download exportpakket (.zip)",
                     export_zip,
                     file_name="energy_system_export_bundle.zip",
                     mime="application/zip",
+                    help="Wat: downloadt resultaten en validatie-informatie samen. In het model verandert dit niets. Effect: handig voor rapportage of overdracht.",
                 )
         except Exception as exc:
-            st.error(f"Total-run mislukt: {exc}")
+            st.error(f"Totale berekening mislukt: {exc}")
 
     if st.session_state["last_total_df"] is not None:
         render_grid_stoplight(
@@ -1565,24 +1881,24 @@ with total_tab:
             contract_kW=float(st.session_state["grid_cap_kW"]) if st.session_state.get("grid_cap_kW") is not None else None,
         )
         if "battery_soc_pct" in st.session_state["last_total_df"].columns:
-            st.markdown("**Battery SoC [%]**")
+            st.markdown("**Vullingsgraad batterij [%]**")
             st.line_chart(first_week(st.session_state["last_total_df"])[["battery_soc_pct"]])
 
 with validation_tab:
-    st.write("Upload meetdata en vergelijk die met de laatste total-run.")
+    st.write("Upload meetdata en vergelijk die met de laatste totale simulatie.")
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.checkbox("Meetdata ingeschakeld", key="measurement_enabled")
-        st.selectbox("Power unit mode", ["kW", "kWh_per_interval"], key="measurement_power_unit_mode")
+        st.checkbox(label_for("measurement_enabled"), key="measurement_enabled", help=help_for("measurement_enabled"))
+        st.selectbox(label_for("measurement_power_unit_mode"), ["kW", "kWh_per_interval"], key="measurement_power_unit_mode", format_func=choice_label, help=help_for("measurement_power_unit_mode"))
     with c2:
-        st.selectbox("Expected resolution", ["15min", "30min", "1h"], key="measurement_expected_resolution")
-        st.selectbox("Gap fill", ["none", "ffill", "bfill", "interpolate_time", "zero"], key="measurement_gap_fill_method")
+        st.selectbox(label_for("measurement_expected_resolution"), ["15min", "30min", "1h"], key="measurement_expected_resolution", help=help_for("measurement_expected_resolution"))
+        st.selectbox(label_for("measurement_gap_fill_method"), ["none", "ffill", "bfill", "interpolate_time", "zero"], key="measurement_gap_fill_method", format_func=choice_label, help=help_for("measurement_gap_fill_method"))
     with c3:
-        st.selectbox("Comparison mode", ["grid_import", "grid_export", "electric_load", "gas", "heat"], key="measurement_comparison_mode")
-        st.selectbox("Resample policy", ["mean_to_hourly", "sum_to_hourly", "mean", "sum", "none"], key="measurement_resample_policy")
+        st.selectbox(label_for("measurement_comparison_mode"), ["grid_import", "grid_export", "electric_load", "gas", "heat"], key="measurement_comparison_mode", format_func=choice_label, help=help_for("measurement_comparison_mode"))
+        st.selectbox(label_for("measurement_resample_policy"), ["mean_to_hourly", "sum_to_hourly", "mean", "sum", "none"], key="measurement_resample_policy", format_func=choice_label, help=help_for("measurement_resample_policy"))
 
-    uploaded = st.file_uploader("Upload meetdata (.csv, .xlsx)", type=["csv", "txt", "xlsx", "xls"], key="measurement_upload")
+    uploaded = st.file_uploader(label_for("measurement_upload"), type=["csv", "txt", "xlsx", "xls"], key="measurement_upload", help=help_for("measurement_upload"))
 
     if uploaded is not None:
         suffix = Path(uploaded.name).suffix or ".csv"
@@ -1590,7 +1906,7 @@ with validation_tab:
         tmp_path.write_bytes(uploaded.getbuffer())
         st.session_state["last_measurement_filename"] = uploaded.name
 
-        if st.button("Verwerk meetdata", key="process_measurements"):
+        if st.button("Verwerk meetdata", key="process_measurements", help="Wat: leest het meetbestand in. In het model wordt de meetreeks klaargezet voor vergelijking. Effect: daarna kun je simulatie en meting valideren."):
             try:
                 bundle, metadata = load_measurement_bundle(
                     tmp_path,
@@ -1613,18 +1929,18 @@ with validation_tab:
 
     measurement_bundle = st.session_state.get("last_measurement_bundle")
     if measurement_bundle is not None:
-        st.markdown("**Preview measured_15m**")
+        st.markdown("**Voorbeeld meetdata**")
         preview_cols = [c for c in ["P_grid_import_kW", "P_grid_export_kW", "P_electric_load_kW", "F_gas_kW", "Q_heat_kWth"] if c in measurement_bundle["measured_15m"].columns]
         if preview_cols:
             st.line_chart(first_week(measurement_bundle["measured_15m"])[preview_cols])
         st.dataframe(measurement_bundle["measured_15m"].head(100))
 
     if st.session_state.get("last_total_df") is None:
-        st.info("Run eerst de total-simulatie om validatie te kunnen doen.")
+        st.info("Bereken eerst de totale simulatie om validatie te kunnen doen.")
     elif measurement_bundle is None:
         st.info("Upload en verwerk eerst meetdata.")
     else:
-        if st.button("Vergelijk simulatie met meetdata", type="primary", key="run_validation"):
+        if st.button("Vergelijk simulatie met meetdata", type="primary", key="run_validation", help="Wat: vergelijkt modeluitkomsten met echte meetdata. In het model worden de reeksen uitgelijnd. Effect: je ziet hoe goed de simulatie aansluit op de praktijk."):
             try:
                 validation = prepare_validation_dataset(
                     st.session_state["last_total_df"],
@@ -1642,8 +1958,9 @@ with validation_tab:
         aligned = st.session_state["last_validation_result"].get("aligned")
         if aligned is not None and not aligned.empty:
             st.download_button(
-                "Download validation CSV",
+                "Download validatie als CSV",
                 aligned.to_csv().encode("utf-8"),
                 file_name="validation_aligned_timeseries.csv",
                 mime="text/csv",
+                help="Wat: downloadt de uitgelijnde simulatie- en meetreeksen. In het model verandert dit niets. Effect: handig voor controle of rapportage.",
             )
