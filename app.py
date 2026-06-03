@@ -1023,6 +1023,76 @@ def render_timeseries_plot(df: pd.DataFrame, cols: list[str], title: str, *, y_t
 def preview_week_chart(df: pd.DataFrame, cols: list[str], title: str, explanation_key: str = "load_total", context: str | None = None):
     render_timeseries_plot(df, cols, title, explanation_key=explanation_key, context=context)
 
+
+def _fmt_kpi(value, unit: str = "", decimals: int = 0) -> str:
+    if value is None:
+        return "-"
+    try:
+        value_f = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if pd.isna(value_f):
+        return "-"
+    if decimals == 0:
+        text = f"{value_f:,.0f}"
+    else:
+        text = f"{value_f:,.{decimals}f}"
+    return f"{text} {unit}".strip()
+
+
+def render_kpi_row(items: list[tuple[str, object, str, int]], columns: int | None = None) -> None:
+    if not items:
+        return
+    cols = st.columns(columns or min(len(items), 4))
+    for col, (label, value, unit, decimals) in zip(cols, items):
+        col.metric(label, _fmt_kpi(value, unit, decimals))
+
+
+def annual_sum(df: pd.DataFrame, column: str) -> float:
+    if column not in df.columns:
+        return 0.0
+    return float((df[column].fillna(0.0) * series_dt_hours(df)).sum())
+
+
+def peak_value(df: pd.DataFrame, column: str) -> float:
+    if column not in df.columns or df.empty:
+        return 0.0
+    return float(df[column].fillna(0.0).max())
+
+
+def intensity_per_m2(value: float, bvo_m2: float | None = None) -> float | None:
+    area = float(bvo_m2 if bvo_m2 is not None else st.session_state.get("def_bvo", 0.0))
+    if area <= 0:
+        return None
+    return float(value) / area
+
+
+def render_input_default_kpis(cfg) -> None:
+    render_kpi_row(
+        [
+            ("Elektrisch vermogen gebruik", float(cfg.pelektro.p_occ_W_per_m2), "W/m²", 1),
+            ("Elektrisch vermogen rust", float(cfg.pelektro.p_unocc_W_per_m2), "W/m²", 1),
+            ("Gebruiksoppervlak", float(cfg.building.bvo_m2), "m²", 0),
+        ],
+        columns=3,
+    )
+
+
+def render_load_component_kpis(df: pd.DataFrame, specs: list[tuple[str, str, str, int]]) -> None:
+    items = []
+    for label, column, unit, decimals in specs:
+        if unit in {"kWh", "kWhth"}:
+            value = annual_sum(df, column)
+        elif unit in {"kWh/m²", "kWhth/m²"}:
+            source_unit = "kWhth" if "kWhth" in unit else "kWh"
+            source = annual_sum(df, column)
+            value = intensity_per_m2(source)
+            unit = source_unit + "/m²"
+        else:
+            value = peak_value(df, column)
+        items.append((label, value, unit, decimals))
+    render_kpi_row(items)
+
 def plot_peak_grid_import_week_stacked(
     df: pd.DataFrame,
     title: str = "Zwaarste netweek",
@@ -1679,10 +1749,7 @@ with load_tab:
             st.slider(label_for("def_shape_manual"), 0.6, 2.0, step=0.05, key="def_shape_manual", help=help_for("def_shape_manual"))
 
         cfg0 = build_cfg()
-        st.write({
-            "Standaard elektrisch vermogen tijdens gebruik [W/m²]": round(float(cfg0.pelektro.p_occ_W_per_m2), 2),
-            "Standaard elektrisch vermogen buiten gebruik [W/m²]": round(float(cfg0.pelektro.p_unocc_W_per_m2), 2),
-        })
+        render_input_default_kpis(cfg0)
 
     with t_bld:
         st.checkbox(label_for("bld_enable"), key="bld_enable", help=help_for("bld_enable"))
@@ -1717,6 +1784,15 @@ with load_tab:
         cfg = build_cfg()
         prev_df, _, _, _ = run_load_simulation(cfg, weather=WEATHER_DF.iloc[:24 * 7])
         preview_week_chart(prev_df, ["Q_heat_kWth", "Q_cool_kWth"], "Voorbeeld gebouwvraag", "building")
+        render_load_component_kpis(
+            prev_df,
+            [
+                ("Warmtevraag eerste week", "Q_heat_kWth", "kWhth", 0),
+                ("Weekintensiteit warmte", "Q_heat_kWth", "kWhth/m²", 1),
+                ("Piek warmtevraag", "Q_heat_kWth", "kWth", 1),
+                ("Koelvraag eerste week", "Q_cool_kWth", "kWhth", 0),
+            ],
+        )
 
     with t_pe:
         st.checkbox(label_for("pe_enable"), key="pe_enable", help=help_for("pe_enable"))
@@ -1732,6 +1808,14 @@ with load_tab:
             pelektro_subloads=subload_payload("pelektro_subloads", "occ"),
         )
         preview_week_chart(pe_df, ["P_elektro_kW"], "Voorbeeld elektrisch verbruik", "electric")
+        render_load_component_kpis(
+            pe_df,
+            [
+                ("Elektrisch verbruik eerste week", "P_elektro_kW", "kWh", 0),
+                ("Weekintensiteit elektrisch", "P_elektro_kW", "kWh/m²", 1),
+                ("Piek elektrisch vermogen", "P_elektro_kW", "kW", 1),
+            ],
+        )
 
     with t_pr:
         st.checkbox(label_for("pr_enable"), key="pr_enable", help=help_for("pr_enable"))
@@ -1747,6 +1831,14 @@ with load_tab:
             pprocess_subloads=subload_payload("pprocess_subloads", "process"),
         )
         preview_week_chart(pr_df, ["P_process_kW"], "Voorbeeld procesverbruik", "process")
+        render_load_component_kpis(
+            pr_df,
+            [
+                ("Procesverbruik eerste week", "P_process_kW", "kWh", 0),
+                ("Weekintensiteit proces", "P_process_kW", "kWh/m²", 1),
+                ("Piek procesvermogen", "P_process_kW", "kW", 1),
+            ],
+        )
 
     with t_mob:
         c1, c2, c3 = st.columns(3)
@@ -1800,6 +1892,14 @@ with load_tab:
             poverig_subloads=subload_payload("poverig_subloads", "occ"),
         )
         preview_week_chart(ov_df, ["P_overig_kW"], "Voorbeeld overig verbruik", "other")
+        render_load_component_kpis(
+            ov_df,
+            [
+                ("Overig verbruik eerste week", "P_overig_kW", "kWh", 0),
+                ("Weekintensiteit overig", "P_overig_kW", "kWh/m²", 1),
+                ("Piek overig vermogen", "P_overig_kW", "kW", 1),
+            ],
+        )
 
     with t_run:
         if st.button("Bereken verbruik", type="primary", help="Wat: start de verbruiksberekening. In het model worden gebouw, elektrische lasten, processen en mobiliteit samengevoegd. Effect: resultaten worden vernieuwd met de huidige instellingen."):
@@ -1813,12 +1913,28 @@ with load_tab:
                 poverig_subloads=subload_payload("poverig_subloads", "occ"),
             )
             st.session_state["last_load_df"] = df
-            st.write(energy_kpis(df))
+            render_kpi_row(
+                [
+                    ("Jaarverbruik elektriciteit", annual_sum(df, "P_load_total_kW"), "kWh", 0),
+                    ("Elektriciteitsintensiteit", intensity_per_m2(annual_sum(df, "P_load_total_kW")), "kWh/m²", 1),
+                    ("Piek totaal verbruik", peak_value(df, "P_load_total_kW"), "kW", 1),
+                    ("Mobiliteit laden", annual_sum(df, "P_mobility_kW"), "kWh", 0),
+                ]
+            )
+            render_kpi_row(
+                [
+                    ("Jaarlijkse warmtevraag", annual_sum(df, "Q_heat_kWth"), "kWhth", 0),
+                    ("Warmte-intensiteit", intensity_per_m2(annual_sum(df, "Q_heat_kWth")), "kWhth/m²", 1),
+                    ("Jaarlijkse koelvraag", annual_sum(df, "Q_cool_kWth"), "kWhth", 0),
+                    ("Piek koelvraag", peak_value(df, "Q_cool_kWth"), "kWth", 1),
+                ]
+            )
             st.pyplot(fig_heat, clear_figure=True)
             render_plot_explanation("building")
             st.pyplot(fig_cool, clear_figure=True)
             render_plot_explanation("building")
-            st.dataframe(df.head(200))
+            with st.expander("Resultaatdata bekijken", expanded=False):
+                st.dataframe(df.head(200))
 
         if st.session_state["last_load_df"] is not None:
             preview_week_chart(st.session_state["last_load_df"], ["P_load_total_kW", "P_heat_ref_el_kW", "P_cool_el_kW"], "Laatste verbruiksberekening", "load_total")
@@ -1857,13 +1973,17 @@ with generation_tab:
             "pv",
             f"Richting: {choice_label(st.session_state['pv_azimuth'])}. Vermogen: {float(st.session_state['pv_cap']):.0f} kWp.",
         )
-        st.write({
-            "Zonnepanelen actief": bool(cfg.pv.enabled),
-            "Vermogen zonnepanelen [kWp]": float(cfg.pv.installed_capacity_kWp),
-            "Maximale globale zoninstraling [W/m²]": float(WEATHER_DF["ghi_Wm2"].max()) if "ghi_Wm2" in WEATHER_DF.columns else None,
-            "Piekvermogen zonnepanelen [kW]": round(float(pv_df["P_pv_kW"].max()), 2),
-            "Jaaropwek zonnepanelen [kWh]": round(float((pv_df["P_pv_kW"] * DT_HOURS).sum()), 0),
-        })
+        pv_year = annual_sum(pv_df, "P_pv_kW")
+        pv_capacity = float(cfg.pv.installed_capacity_kWp)
+        full_load_hours = pv_year / pv_capacity if pv_capacity > 0 else None
+        render_kpi_row(
+            [
+                ("Piekvermogen PV", peak_value(pv_df, "P_pv_kW"), "kW", 1),
+                ("Jaaropwek PV", pv_year, "kWh", 0),
+                ("Vollasturen", full_load_hours, "h", 0),
+            ],
+            columns=3,
+        )
 
     with g_wkk:
         c1, c2, c3 = st.columns(3)
@@ -1909,19 +2029,19 @@ with generation_tab:
             "wkk",
             f"Regeling: {choice_label(st.session_state['wkk_dispatch_mode'])}.",
         )
-        st.write({
-            "Piekvermogen WKK elektrisch [kW]": round(float(wkk_df["P_wkk_el_kW"].max()), 2),
-            "Piekvermogen WKK warmte [kWth]": round(float(wkk_df["P_wkk_th_kW"].max()), 2),
-            "Jaarlijkse brandstofinvoer WKK [kWh]": round(float((wkk_df["F_wkk_fuel_kWh_per_h"] * DT_HOURS).sum()), 0),
-            "Jaarlijkse nuttige WKK-warmte [kWhth]": round(float((wkk_df["Q_wkk_used_kWth"] * DT_HOURS).sum()), 0),
-        })
+        render_kpi_row(
+            [
+                ("Piek WKK elektrisch", peak_value(wkk_df, "P_wkk_el_kW"), "kW", 1),
+                ("Piek WKK warmte", peak_value(wkk_df, "P_wkk_th_kW"), "kWth", 1),
+                ("Brandstofinput", annual_sum(wkk_df, "F_wkk_fuel_kWh_per_h"), "kWh", 0),
+                ("Benutte warmte", annual_sum(wkk_df, "Q_wkk_used_kWth"), "kWhth", 0),
+            ]
+        )
 
     with g_grid:
         st.number_input(label_for("grid_cap_kW"), min_value=0.0, step=5.0, key="grid_cap_kW", help=help_for("grid_cap_kW"))
         st.caption("0 = geen expliciete begrenzing in de simulatie.")
-        st.write({
-            "Ingesteld contractvermogen [kW]": float(st.session_state["grid_cap_kW"])
-        })
+        render_kpi_row([("Contractvermogen", safe_contract_value(st.session_state.get("grid_cap_kW")), "kW", 1)], columns=1)
 
     with g_run:
         cfg = build_cfg()
@@ -1939,13 +2059,14 @@ with generation_tab:
         if cols:
             render_timeseries_plot(gen_df, cols, "Voorbeeld opwek en netimport", explanation_key="generation")
 
-        st.write({
-            "Piek zonnepanelen [kW]": round(float(gen_df["P_pv_kW"].max()), 2) if "P_pv_kW" in gen_df else 0.0,
-            "Piek WKK [kW]": round(float(gen_df["P_wkk_el_kW"].max()), 2) if "P_wkk_el_kW" in gen_df else 0.0,
-            "Piek totale opwek [kW]": round(float(gen_df["P_generation_total_kW"].max()), 2) if "P_generation_total_kW" in gen_df else 0.0,
-            "Jaaropwek zonnepanelen [kWh]": round(float((gen_df["P_pv_kW"] * DT_HOURS).sum()), 0) if "P_pv_kW" in gen_df else 0.0,
-            "Jaaropwek WKK [kWh]": round(float((gen_df["P_wkk_el_kW"] * DT_HOURS).sum()), 0) if "P_wkk_el_kW" in gen_df else 0.0,
-        })
+        render_kpi_row(
+            [
+                ("Piek totale opwek", peak_value(gen_df, "P_generation_total_kW"), "kW", 1),
+                ("Jaaropwek PV", annual_sum(gen_df, "P_pv_kW"), "kWh", 0),
+                ("Jaaropwek WKK", annual_sum(gen_df, "P_wkk_el_kW"), "kWh", 0),
+                ("Piek netimport", peak_value(gen_df, "P_grid_import_kW"), "kW", 1),
+            ]
+        )
 
 
 with heat_tab:
@@ -2079,16 +2200,28 @@ with total_tab:
             contract = safe_contract_value(st.session_state.get("grid_cap_kW"))
             render_grid_stoplight(df, contract, cfg=cfg)
             kpis = energy_kpis(df)
-            heat_terms = ("warmte", "ketel", "warmtenet")
-            c1, c2 = st.columns(2)
-            with c1:
-                st.write({k: v for k, v in kpis.items() if not any(term in k.lower() for term in heat_terms)})
-            with c2:
-                st.write({k: v for k, v in kpis.items() if any(term in k.lower() for term in heat_terms)})
+            st.markdown("### Kerngetallen")
+            render_kpi_row(
+                [
+                    ("Piek netimport", kpis.get("Piek netimport na batterij [kW]"), "kW", 1),
+                    ("Piek boven contract", kpis.get("Piek boven contractvermogen [kW]"), "kW", 1),
+                    ("Jaarlijkse netimport", kpis.get("Jaarlijkse netimport [kWh]"), "kWh", 0),
+                    ("Jaarverbruik elektriciteit", kpis.get("Jaarverbruik elektriciteit [kWh]"), "kWh", 0),
+                ]
+            )
+            render_kpi_row(
+                [
+                    ("Jaarlijkse warmtevraag", kpis.get("Jaarlijkse warmtevraag [kWhth]"), "kWhth", 0),
+                    ("Ongedekte warmte", kpis.get("Jaarlijkse ongedekte warmte [kWhth]"), "kWhth", 0),
+                    ("Warmtepomp elektriciteit", kpis.get("Jaarverbruik warmtepomp elektriciteit [kWh]"), "kWh", 0),
+                    ("Ketelwarmte", kpis.get("Jaarlijkse ketelwarmte [kWhth]"), "kWhth", 0),
+                ]
+            )
 
             render_sanity_checks(df)
             st.markdown("### Samenvatting voor consultant")
-            st.json(consultant_summary(df, contract))
+            with st.expander("Bekijk samenvatting", expanded=False):
+                st.json(consultant_summary(df, contract))
             st.markdown("### Indicatoren netbelasting")
 
             m = compute_grid_stress_metrics(df, contract)
@@ -2155,7 +2288,8 @@ with total_tab:
             heat_cols = [c for c in ["Q_heat_demand_kWth", "Q_hp_th_kWth", "Q_wkk_used_kWth", "Q_boiler_th_kWth", "Q_dh_th_kWth", "Q_heat_from_reference_kWth", "Q_thermal_storage_discharge_kWth", "Q_heat_unserved_final_kWth"] if c in df.columns]
             if heat_cols:
                 render_timeseries_plot(df, heat_cols, "Warmtebalans eerste week", y_title="Warmtevermogen [kWth]", explanation_key="heat_balance")
-            st.dataframe(df.head(200))
+            with st.expander("Resultaatdata bekijken", expanded=False):
+                st.dataframe(df.head(200))
             export_zip = build_export_bundle(
                 df,
                 measurement_metadata=st.session_state.get("last_measurement_metadata"),
