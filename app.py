@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from pathlib import Path
-import pandas as pd
-import streamlit as st
-import altair as alt
-
 import io
 import json
+import os
+import tempfile
 import zipfile
+from pathlib import Path
+
+os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "energieplanner-matplotlib"))
+
+import altair as alt
+import pandas as pd
+import streamlit as st
 
 from src.load import (
     BuildingType,
@@ -742,7 +746,12 @@ def load_weather(path: str) -> pd.DataFrame:
     return read_weather_excel(path, year=None, freq=None, tz=TZ)
 
 
-WEATHER_DF = load_weather(str(WEATHER_PATH))
+try:
+    WEATHER_DF = load_weather(str(WEATHER_PATH))
+except Exception as exc:
+    st.error(f"Weerdata kon niet worden geladen: {exc}")
+    st.info("Controleer of 'Weatherdata 2008-2021.xlsx' in de hoofdmap van de repo staat en mee gedeployed is.")
+    st.stop()
 if not WEATHER_DF.index.is_unique:
     dupes = WEATHER_DF.index[WEATHER_DF.index.duplicated(keep=False)]
     st.error(f"Weather index bevat duplicates: {len(dupes)} rijen")
@@ -2203,13 +2212,15 @@ with validation_tab:
     uploaded = st.file_uploader(label_for("measurement_upload"), type=["csv", "txt", "xlsx", "xls"], key="measurement_upload", help=help_for("measurement_upload"))
 
     if uploaded is not None:
-        suffix = Path(uploaded.name).suffix or ".csv"
-        tmp_path = APP_DIR / f"_tmp_measurements{suffix}"
-        tmp_path.write_bytes(uploaded.getbuffer())
         st.session_state["last_measurement_filename"] = uploaded.name
 
         if st.button("Verwerk meetdata", key="process_measurements", help="Wat: leest het meetbestand in. In het model wordt de meetreeks klaargezet voor vergelijking. Effect: daarna kun je simulatie en meting valideren."):
+            suffix = Path(uploaded.name).suffix or ".csv"
+            tmp_path = None
             try:
+                with tempfile.NamedTemporaryFile(prefix="energieplanner_measurements_", suffix=suffix, delete=False) as tmp_file:
+                    tmp_file.write(uploaded.getbuffer())
+                    tmp_path = Path(tmp_file.name)
                 bundle, metadata = load_measurement_bundle(
                     tmp_path,
                     timezone=str(st.session_state["measurement_timezone"]),
@@ -2223,6 +2234,9 @@ with validation_tab:
                 st.session_state["last_validation_result"] = None
             except Exception as exc:
                 st.error(f"Meetdata kon niet worden verwerkt: {exc}")
+            finally:
+                if tmp_path is not None:
+                    tmp_path.unlink(missing_ok=True)
 
     if st.session_state.get("last_measurement_filename"):
         st.caption(f"Laatste meetbestand: {st.session_state['last_measurement_filename']}")

@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Streamlit
 .streamlit/secrets.toml
@@ -23,6 +26,17 @@ dist/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Local / generated data
+_tmp_measurements.*
+energy_system_results.csv
+energy_system_export_bundle.zip
+*.tmp
+
+# Local-only launchers and analysis artifacts
+*.app/
+Notebook.ipynb
+run_app.bat
 
 # IDE/editor files
 .vscode/
