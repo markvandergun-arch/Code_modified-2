@@ -44,6 +44,7 @@ st.caption("Modelleer het energiegebruik van een gebouw en verken opties zoals z
 APP_DIR = Path(__file__).resolve().parent
 WEATHER_PATH = APP_DIR / "Weatherdata 2008-2021.xlsx"
 INVENTORY_PDF_PATH = APP_DIR / "assets" / "inventarisatie_energieplanner.pdf"
+METHOD_DOCX_PATH = APP_DIR / "docs" / "methode_energieplanner.docx"
 SIM_FREQ = None
 TZ = "Europe/Amsterdam"
 DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -2723,6 +2724,279 @@ def build_cfg():
             "efficiency_charge": float(st.session_state["th_eff_charge"]),
             "efficiency_discharge": float(st.session_state["th_eff_discharge"]),
         },
+        )
+
+
+MODEL_OVERVIEW_ROWS = [
+    ("1", "Weerdata en tijdindex", "Temperatuur, zoninstraling en eventueel wind bepalen de tijdsbasis."),
+    ("2", "Gebouwmodel", "Berekent thermische warmtevraag en koelvraag van het gebouw."),
+    ("3", "Gebruiksmodellen", "Voegt elektrisch basisverbruik, processen, mobiliteit en overig verbruik toe."),
+    ("4", "Lokale opwek", "Berekent PV-elektriciteit en WKK-elektriciteit plus WKK-warmte."),
+    ("5", "Warmteketen", "Dekt warmtevraag met WKK, opslag, warmtepomp, ketel, warmtenet of referentie."),
+    ("6", "Opslag", "Verschuift warmte en elektriciteit in de tijd binnen SoC- en vermogensgrenzen."),
+    ("7", "Netbalans", "Berekent netimport, teruglevering, contractoverschrijding en stoplicht."),
+    ("8", "Validatie en checks", "Controleert modelconsistentie en vergelijkt optioneel met meetdata."),
+]
+
+
+METHOD_SECTIONS = [
+    {
+        "title": "Gebouwmodel",
+        "summary": "Het gebouwmodel bepaalt de thermische vraag. De installaties bepalen pas daarna hoe die vraag wordt ingevuld.",
+        "method": [
+            "Gebruiksschema bepaalt per tijdstap of het gebouw in of buiten gebruik is.",
+            "Verwarming en koeling gebruiken aparte setpoints met een deadband, zodat niet tegelijk verwarmd en gekoeld wordt.",
+            "Transmissie, ventilatie, infiltratie, interne warmtelast en zonnewinst vormen samen de warmtebalans.",
+        ],
+        "latex": [
+            r"UA = \sum_i U_i A_i",
+            r"\dot Q_{air} = \rho_{air} c_p \frac{\dot V}{3600}\Delta T",
+            r"Q_{heat} = \max(Q_{trans}+Q_{vent}+Q_{inf}-Q_{int}-Q_{sol},0)",
+            r"Q_{cool} = \max(Q_{int}+Q_{sol}+Q_{trans}+Q_{vent}+Q_{inf},0)",
+        ],
+        "outputs": "Q_heat_kWth, Q_cool_kWth",
+    },
+    {
+        "title": "Elektrisch verbruik, processen en overig gebruik",
+        "summary": "Deze modellen maken reguliere elektrische vraag zichtbaar, los van warmte-installaties en opwek.",
+        "method": [
+            "Elektrisch en overig gebruik zijn gebaseerd op vermogen per vierkante meter en gebruiksroosters.",
+            "Processen gebruiken actief vermogen en idle-vermogen per proces of een standaardprofiel.",
+            "Deellasten worden apart berekend en daarna opgeteld.",
+        ],
+        "latex": [
+            r"P_{elek}(t)=\frac{p_{occ/unocc}(t)\cdot BVO}{1000}",
+            r"P_{process}(t)=\sum_k P_{process,k}(t)",
+        ],
+        "outputs": "P_elektro_kW, P_process_kW, P_overig_kW",
+    },
+    {
+        "title": "Mobiliteit",
+        "summary": "Mobiliteit wordt gemodelleerd als dagelijkse energiebehoefte per aanwezige auto, niet als constante kantoorurenlast.",
+        "method": [
+            "Energie per auto volgt uit batterijcapaciteit en verschil tussen aankomst- en vertrek-SoC.",
+            "Direct laden laadt zo snel mogelijk vanaf aankomst.",
+            "Slim laden laadt alleen binnen beschikbare contractruimte; tekort wordt apart geregistreerd.",
+        ],
+        "latex": [
+            r"E_{auto}=C_{bat}\frac{\max(SoC_{vertrek}-SoC_{aankomst},0)}{100}",
+            r"E_{dag}=E_{auto}\cdot n_{auto}\cdot f_{aanwezig}",
+            r"P_{smart}(t)=\min(P_{cap},\max(P_{contract}-P_{basis}(t),0))",
+        ],
+        "outputs": "P_mobility_kW, E_mobility_unserved_kWh",
+    },
+    {
+        "title": "Zonnepanelen",
+        "summary": "PV-opwek is een transparante proxy op basis van globale instraling, opgesteld vermogen, richting, helling en temperatuur.",
+        "method": [
+            "GHI wordt genormaliseerd op 1000 W/m².",
+            "Richting en helling werken als correctiefactoren.",
+            "Temperatuur verlaagt de opbrengst via een temperatuurcoëfficiënt.",
+        ],
+        "latex": [
+            r"f_{irr}=\mathrm{clip}\left(\frac{GHI}{1000},0,1.5\right)",
+            r"T_{cell}=T_{amb}+0.03\cdot GHI",
+            r"P_{pv}=kWp\cdot f_{irr}\cdot f_{az}\cdot f_{tilt}\cdot PR\cdot \eta_{inv}\cdot f_T",
+        ],
+        "outputs": "P_pv_kW",
+    },
+    {
+        "title": "WKK",
+        "summary": "De WKK levert elektriciteit en warmte uit brandstof volgens de gekozen regeling.",
+        "method": [
+            "Dispatch kan elektriciteitsgestuurd, warmtevraaggestuurd, hybride, begrensd, must-run of uit zijn.",
+            "Warmtevraaggestuurd bedrijf vertaalt warmtevraag naar een elektrisch bedrijfsniveau.",
+            "Ongebruikte WKK-warmte wordt als warmteoverschot geboekt.",
+        ],
+        "latex": [
+            r"P_{el,heat} = Q_{heat}\frac{\eta_{el}}{\eta_{th}}",
+            r"F_{wkk}=\frac{P_{wkk,el}}{\eta_{el}}",
+            r"Q_{wkk}=F_{wkk}\eta_{th}",
+            r"Q_{dump}=\max(Q_{wkk}-Q_{used},0)",
+        ],
+        "outputs": "P_wkk_el_kW, Q_wkk_used_kWth, Q_wkk_dumped_kWth",
+    },
+    {
+        "title": "Warmteketen",
+        "summary": "De warmteketen dekt resterende warmtevraag met opslag, warmtepomp, ketel, warmtenet en eventueel referentieverwarming.",
+        "method": [
+            "Warmtepomp-elektriciteit volgt uit geleverde warmte gedeeld door COP.",
+            "COP kan vast, seizoensafhankelijk of weersafhankelijk zijn.",
+            "Ketel en warmtenet leveren resterende warmte binnen hun capaciteit.",
+            "Referentieverwarming vult alleen resterende warmte als fallback.",
+        ],
+        "latex": [
+            r"COP_{weer}=\max(COP_{nom}+0.06(T_{amb}-7),1)",
+            r"P_{hp,el}=\frac{Q_{hp,th}}{COP}",
+            r"F_{ketel}=\frac{Q_{ketel}}{\eta_{ketel}}",
+            r"P_{ref,el}=\frac{Q_{rest}}{COP_{ref}}",
+        ],
+        "outputs": "P_hp_el_kW, Q_boiler_th_kWth, Q_dh_th_kWth, P_heat_ref_el_kW",
+    },
+    {
+        "title": "Opslag",
+        "summary": "Batterij en warmteopslag verschuiven energie in de tijd binnen capaciteit, vermogen, rendement en SoC-grenzen.",
+        "method": [
+            "Batterij ontlaadt bij elektrische restvraag en laadt bij lokaal overschot of contractruimte.",
+            "Warmteopslag laadt uit warmteoverschot en ontlaadt tegen warmtetekort.",
+            "Rendementen en stilstandsverliezen verklaren verschillen tussen laden en ontladen.",
+        ],
+        "latex": [
+            r"\eta_{charge}=\eta_{discharge}=\sqrt{\eta_{roundtrip}}",
+            r"P_{bat,out}=\min(P_{res},P_{max,out},E_{avail}\eta_{out}/dt)",
+            r"E_{th,next}=E_{th}-E_{loss}+Q_{charge}\eta_{in}dt-\frac{Q_{discharge}}{\eta_{out}}dt",
+        ],
+        "outputs": "P_battery_charge_kW, P_battery_discharge_kW, E_battery_kWh, E_thermal_storage_kWhth",
+    },
+    {
+        "title": "Netbalans en stoplicht",
+        "summary": "De netbalans bepaalt of het scenario binnen de ingestelde aansluiting past.",
+        "method": [
+            "Totale elektrische vraag wordt verminderd met PV en WKK-elektriciteit.",
+            "Batterij laden verhoogt de restvraag; batterij ontladen verlaagt de restvraag.",
+            "Het stoplicht gebruikt piekimport, percentielen, overschrijdingsuren en overschrijdingsenergie.",
+        ],
+        "latex": [
+            r"P_{load}=P_{basis}+P_{hp}+P_{ref}",
+            r"P_{res}=P_{load}-(P_{pv}+P_{wkk})",
+            r"P_{net}=P_{res}+P_{bat,charge}-P_{bat,discharge}",
+            r"P_{import}=\max(P_{net},0),\quad P_{export}=\max(-P_{net},0)",
+        ],
+        "outputs": "P_grid_import_kW, P_grid_export_kW, grid_evaluation",
+    },
+]
+
+
+ASSUMPTION_ROWS = [
+    ("Schaalniveau", "Eén gebouw of locatie", "Geen gebieds- of wijknetmodel."),
+    ("Tijdreeksen", "Alle stromen worden per tijdstap berekend", "Pieken en timing zijn belangrijker dan alleen jaartotalen."),
+    ("Deterministisch", "Gelijke invoer geeft gelijke uitkomst", "Geen automatische optimalisatie of kansverdeling."),
+    ("Vereenvoudigde fysica", "Transparante proxy-modellen", "Geschikt voor scenarioverkenning, niet voor detailontwerp."),
+    ("Datakwaliteit", "Uitkomst volgt invoerkwaliteit", "Onzekere invoer moet als scenario-bandbreedte worden gelezen."),
+]
+
+
+INTERPRETATION_ROWS = [
+    ("Piek netimport", "Past het gebouw binnen contractvermogen?", "Hoofdindicator voor netcapaciteit."),
+    ("Uren boven contract", "Is overschrijding incidenteel of structureel?", "Bepaalt of sturing/opslag genoeg kan zijn."),
+    ("Ongedekte warmte", "Wordt warmtevraag volledig geleverd?", "Moet normaal nul zijn voor een haalbaar scenario."),
+    ("Gas-/brandstofinput", "Blijft er fossiele of andere brandstof nodig?", "Bepaalt of gasloosheid echt wordt gehaald."),
+    ("Teruglevering", "Is lokale opwek niet direct benut?", "Kan wijzen op opslag, slim laden of vraagsturing."),
+    ("Opslag-SOC", "Is opslag beschikbaar op piekmomenten?", "Laat zien of capaciteit en timing logisch zijn."),
+]
+
+
+def render_latex_formula_block(formulas: list[str]) -> None:
+    for formula in formulas:
+        st.latex(formula)
+
+
+def render_compact_table(rows: list[tuple[str, str, str]], columns: tuple[str, str, str]) -> None:
+    st.dataframe(
+        pd.DataFrame(rows, columns=list(columns)),
+        hide_index=True,
+        width="stretch",
+    )
+
+
+def render_methodology_tab() -> None:
+    st.markdown("### Methode & Uitleg")
+    st.caption(
+        "Deze sectie beschrijft hoe het model rekent. Het doel is dat resultaten herleidbaar zijn: "
+        "wat is vraag, wat is opwek, wat is opslag en wat blijft over voor het net?"
+    )
+
+    c1, c2, c3 = st.columns([1.3, 1.2, 1.0])
+    with c1:
+        st.markdown("**Doel van het model**")
+        st.write(
+            "De app brengt energiestromen van één gebouw in kaart en splitst die op in thermische energie, "
+            "elektrische energie en brandstofenergie. Daarmee kan een consultant onderzoeken hoe een gebouw "
+            "gasloos of binnen een beperkte netaansluiting kan functioneren."
+        )
+    with c2:
+        st.markdown("**Leesvolgorde**")
+        st.write(
+            "Lees de resultaten altijd in deze volgorde: netcapaciteit, veroorzakers van pieken, warmte/gasloosheid, "
+            "load match en daarna opslag/flexibiliteit."
+        )
+    with c3:
+        if METHOD_DOCX_PATH.exists():
+            st.download_button(
+                "Download methodedocument",
+                METHOD_DOCX_PATH.read_bytes(),
+                file_name="methode_energieplanner.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                help="Downloadt de volledige wetenschappelijke methodebeschrijving als Word-bestand.",
+            )
+        else:
+            st.info("Methodedocument is nog niet beschikbaar.")
+
+    st.markdown("#### Modeloverzicht")
+    render_compact_table(MODEL_OVERVIEW_ROWS, ("Stap", "Rekenblok", "Rol in het model"))
+    st.latex(r"\text{Vraag} \rightarrow \text{Opwek} \rightarrow \text{Warmteketen} \rightarrow \text{Opslag} \rightarrow \text{Netbalans}")
+
+    with st.expander("Kernbalansen", expanded=True):
+        st.write(
+            "De belangrijkste modelkeuze is dat thermische vraag eerst apart wordt berekend. "
+            "Pas daarna bepalen installaties hoeveel elektriciteit of brandstof nodig is."
+        )
+        render_latex_formula_block(
+            [
+                r"P_{load,total}=P_{basis}+P_{hp,el}+P_{ref,heat,el}",
+                r"P_{generation}=P_{pv}+P_{wkk,el}",
+                r"P_{res,before\ battery}=P_{load,total}-P_{generation}",
+                r"P_{grid,import}=\max(P_{res}+P_{bat,charge}-P_{bat,discharge},0)",
+                r"P_{grid,export}=\max(-(P_{res}+P_{bat,charge}-P_{bat,discharge}),0)",
+            ]
+        )
+
+    st.markdown("#### Deelmodellen")
+    for section in METHOD_SECTIONS:
+        with st.expander(section["title"], expanded=False):
+            st.write(section["summary"])
+            st.markdown("**Methode in de code**")
+            for item in section["method"]:
+                st.markdown(f"- {item}")
+            st.markdown("**Belangrijkste formules**")
+            render_latex_formula_block(section["latex"])
+            st.caption(f"Belangrijkste uitvoer: {section['outputs']}")
+
+    st.markdown("#### Aannames en beperkingen")
+    render_compact_table(ASSUMPTION_ROWS, ("Thema", "Aanname", "Betekenis"))
+    with st.expander("Belangrijkste beperkingen per onderdeel", expanded=False):
+        st.markdown(
+            """
+- Het gebouwmodel is een transparante warmtebalans, geen volledig dynamisch gebouwsimulatiemodel.
+- Het PV-model gebruikt een vereenvoudigde instraling-, richting-, helling- en temperatuurproxy.
+- Mobiliteit gebruikt gemiddelde voertuiginstellingen en geen individueel rijgedrag.
+- Batterij en warmteopslag volgen vaste dispatchregels en geen prijsoptimalisatie.
+- Het stoplicht beoordeelt gebouwzijdige netimport, maar is geen formele netbeheerderstudie.
+            """
+        )
+
+    st.markdown("#### Interpretatie van resultaten")
+    render_compact_table(INTERPRETATION_ROWS, ("Resultaat", "Vraag die je ermee beantwoordt", "Waarom belangrijk"))
+    with st.expander("Praktische leesregels", expanded=False):
+        st.markdown(
+            """
+- Een groen stoplicht betekent dat het scenario binnen de ingestelde modelgrenzen past, niet automatisch dat de netbeheerder akkoord is.
+- Een rood stoplicht met weinig overschrijdingsuren wijst vaak op sturing, slim laden of opslag als kansrijke maatregel.
+- Veel teruglevering betekent niet automatisch dat er te veel PV is; het kan ook wijzen op ontbrekende vraagsturing.
+- Gasloos is pas overtuigend als de warmtevraag gedekt is én de extra elektrische vraag binnen de aansluiting past.
+- Ongedekte warmte betekent dat het scenario technisch niet volledig sluit, tenzij dit bewust als tekort is geaccepteerd.
+            """
+        )
+
+    st.markdown("#### Bronnen")
+    st.markdown(
+        """
+- IEA: eindgebruikindicatoren, gebouwenergie en warmtepompen.
+- NREL/PVWatts en PVPMC: PV-opbrengst op basis van instraling, temperatuur en systeemverliezen.
+- EnergyPlus Engineering Reference: bouwfysische warmtebalans, interne winsten, ventilatie en zon.
+- PV-load-match literatuur: zelfconsumptie, zelfvoorziening en timing tussen PV en vraag.
+- ASHRAE/FEMP: kalibratiematen zoals NMBE en CV(RMSE).
+        """
     )
 
 
@@ -2730,7 +3004,7 @@ st.info(
     f"Weerbron: {WEATHER_PATH.name}. De simulatie gebruikt deze data om zonopwek, warmtevraag en koeling door het jaar te berekenen."
 )
 
-load_tab, generation_tab, heat_tab, storage_tab, total_tab, validation_tab = st.tabs(["Verbruik", "Opwek", "Warmte", "Opslag", "Resultaten", "Validatie"])
+load_tab, generation_tab, heat_tab, storage_tab, total_tab, validation_tab, methodology_tab = st.tabs(["Verbruik", "Opwek", "Warmte", "Opslag", "Resultaten", "Validatie", "Methode & uitleg"])
 
 
 with load_tab:
@@ -3279,3 +3553,7 @@ with validation_tab:
                 mime="text/csv",
                 help="Wat: downloadt de uitgelijnde simulatie- en meetreeksen. In het model verandert dit niets. Effect: handig voor controle of rapportage.",
             )
+
+
+with methodology_tab:
+    render_methodology_tab()
