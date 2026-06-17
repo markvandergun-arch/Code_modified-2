@@ -61,7 +61,8 @@ PV_DIRECTION_TO_AZIMUTH = {
     "NW": 315.0,
 }
 PV_EAST_WEST_OPTION = "east_west"
-PV_AZIMUTH_OPTIONS = list(PV_DIRECTION_TO_AZIMUTH.values()) + [PV_EAST_WEST_OPTION]
+PV_NUMERIC_AZIMUTH_OPTIONS = list(PV_DIRECTION_TO_AZIMUTH.values())
+PV_AZIMUTH_OPTIONS = PV_NUMERIC_AZIMUTH_OPTIONS + [PV_EAST_WEST_OPTION]
 
 DAY_DISPLAY = {
     "Mon": "Maandag",
@@ -618,7 +619,7 @@ def closest_pv_azimuth(value) -> float:
     except (TypeError, ValueError):
         return 180.0
     raw = raw % 360.0
-    return min(PV_AZIMUTH_OPTIONS, key=lambda x: abs(((raw - x + 180.0) % 360.0) - 180.0))
+    return min(PV_NUMERIC_AZIMUTH_OPTIONS, key=lambda x: abs(((raw - x + 180.0) % 360.0) - 180.0))
 
 
 def normalize_input_constraints() -> list[str]:
