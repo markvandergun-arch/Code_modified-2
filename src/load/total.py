@@ -32,10 +32,20 @@ PLOT_LABELS_NL = {
     "P_total_kW": "Totaal verbruik",
     "P_grid_import_kW": "Netimport",
     "P_pv_kW": "Zonnepanelen",
+    "P_pv_available_kW": "Beschikbare PV",
+    "P_pv_used_kW": "Benutte PV",
+    "P_pv_curtailed_kW": "Afgetopte PV",
+    "P_pv_east_kW": "PV oost",
+    "P_pv_west_kW": "PV west",
     "P_wkk_el_kW": "WKK elektrisch",
     "P_hp_el_kW": "Warmtepomp elektriciteit",
     "P_grid_export_kW": "Teruglevering",
 }
+
+
+def _fmt_nl_number(value: float, decimals: int = 1) -> str:
+    text = f"{float(value):,.{decimals}f}"
+    return text.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 # =============================================================================
@@ -113,14 +123,16 @@ def find_peak_week(df: pd.DataFrame, column: str, *, window_days: int = 7) -> pd
     window_len = max(int(window_days * steps_per_day), 1)
 
     values = df[column].to_numpy(dtype=float)
-    best_i = 0
-    best_peak = -np.inf
-    for i in range(0, max(len(values) - window_len + 1, 1)):
-        peak = np.nanmax(values[i : i + window_len])
-        if peak > best_peak:
-            best_peak = peak
-            best_i = i
-    return idx[best_i : best_i + window_len]
+    finite = np.isfinite(values)
+    if not finite.any():
+        return idx[:window_len]
+
+    peak_i = int(np.nanargmax(values))
+    half_before = window_len // 2
+    start_i = peak_i - half_before
+    start_i = max(0, min(start_i, max(len(idx) - window_len, 0)))
+    end_i = min(start_i + window_len, len(idx))
+    return idx[start_i:end_i]
 
 
 def plot_week(
@@ -156,7 +168,7 @@ def plot_week(
     if "P_grid_import_kW" in w.columns and not y_label.endswith("[kWth]"):
         ax.plot(w.index, w["P_grid_import_kW"], linewidth=1.6, label=PLOT_LABELS_NL["P_grid_import_kW"])
     if grid_cap_kW is not None and not y_label.endswith("[kWth]"):
-        ax.axhline(float(grid_cap_kW), linestyle="--", linewidth=1.5, label=f"Contractvermogen = {grid_cap_kW:.1f} kW")
+        ax.axhline(float(grid_cap_kW), linestyle="--", linewidth=1.5, label=f"Contractvermogen = {_fmt_nl_number(grid_cap_kW, 1)} kW")
     ax.set_title(title)
     ax.set_ylabel(y_label)
     ax.grid(True, alpha=0.2)
@@ -186,7 +198,7 @@ def plot_energy_balance_week(
         if col in w.columns:
             ax.plot(w.index, w[col], linewidth=1.8, label=PLOT_LABELS_NL.get(col, col))
     if grid_cap_kW is not None:
-        ax.axhline(float(grid_cap_kW), linestyle="--", linewidth=1.5, label=f"Contractvermogen = {grid_cap_kW:.1f} kW")
+        ax.axhline(float(grid_cap_kW), linestyle="--", linewidth=1.5, label=f"Contractvermogen = {_fmt_nl_number(grid_cap_kW, 1)} kW")
     ax.set_title(title)
     ax.set_ylabel("Vermogen [kW / kWth]")
     ax.grid(True, alpha=0.2)
@@ -664,6 +676,13 @@ def run_energy_system_simulation(
         + balance_df["P_battery_charge_kW"]
         - balance_df["P_battery_discharge_kW"]
     )
+    no_pv_export = str(getattr(config.pv, "export_mode", "allow_export")) == "no_export"
+    if no_pv_export:
+        balance_df["P_pv_curtailed_kW"] = np.clip(-balance_df["P_residual_after_battery_kW"], 0.0, None)
+        balance_df["P_residual_after_battery_kW"] = np.clip(balance_df["P_residual_after_battery_kW"], 0.0, None)
+    else:
+        balance_df["P_pv_curtailed_kW"] = 0.0
+    balance_df["P_pv_used_kW"] = np.clip(balance_df["P_pv_kW"] - balance_df["P_pv_curtailed_kW"], 0.0, None)
     balance_df["P_residual_after_generation_kW"] = balance_df["P_residual_after_battery_kW"]
     balance_df["P_grid_import_before_battery_kW"] = np.clip(balance_df["P_residual_before_battery_kW"], 0.0, None)
     balance_df["P_grid_import_kW"] = np.clip(balance_df["P_residual_after_battery_kW"], 0.0, None)
@@ -681,6 +700,8 @@ def run_energy_system_simulation(
         "peak_grid_import_kW": float(balance_df["P_grid_import_kW"].max()),
         "annual_load_kWh": float((balance_df["P_load_total_kW"] * dt_h).sum()),
         "annual_pv_kWh": float((balance_df["P_pv_kW"] * dt_h).sum()),
+        "annual_pv_used_kWh": float((balance_df["P_pv_used_kW"] * dt_h).sum()),
+        "annual_pv_curtailed_kWh": float((balance_df["P_pv_curtailed_kW"] * dt_h).sum()),
         "annual_wkk_el_kWh": float((balance_df["P_wkk_el_kW"] * dt_h).sum()),
         "annual_hp_el_kWh": float((balance_df["P_hp_kW"] * dt_h).sum()),
         "annual_reference_heat_el_kWh": float((balance_df["P_heat_ref_el_kW"] * dt_h).sum()),

@@ -298,6 +298,9 @@ class PVConfig:
     installed_capacity_kWp: float = 0.0
     tilt_deg: float = 35.0
     azimuth_deg: float = 180.0
+    orientation_mode: str = "single"
+    export_mode: str = "allow_export"
+    east_west_split: float = 0.5
     performance_ratio: float = 0.85
     inverter_efficiency: float = 0.98
     temp_coeff_per_C: float = -0.004
@@ -992,6 +995,12 @@ def make_default_load_config(
             raise ValueError("pv.performance_ratio must be between 0 and 1.2")
         if not (0.0 <= pv.inverter_efficiency <= 1.0):
             raise ValueError("pv.inverter_efficiency must be between 0 and 1")
+        if pv.orientation_mode not in {"single", "east_west"}:
+            raise ValueError("pv.orientation_mode must be 'single' or 'east_west'")
+        if pv.export_mode not in {"allow_export", "no_export"}:
+            raise ValueError("pv.export_mode must be 'allow_export' or 'no_export'")
+        if not (0.0 <= pv.east_west_split <= 1.0):
+            raise ValueError("pv.east_west_split must be between 0 and 1")
         if pv.site_cap_kW is not None and pv.site_cap_kW <= 0:
             raise ValueError("pv.site_cap_kW must be > 0 when provided")
 

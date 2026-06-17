@@ -60,7 +60,8 @@ PV_DIRECTION_TO_AZIMUTH = {
     "W": 270.0,
     "NW": 315.0,
 }
-PV_AZIMUTH_OPTIONS = list(PV_DIRECTION_TO_AZIMUTH.values())
+PV_EAST_WEST_OPTION = "east_west"
+PV_AZIMUTH_OPTIONS = list(PV_DIRECTION_TO_AZIMUTH.values()) + [PV_EAST_WEST_OPTION]
 
 DAY_DISPLAY = {
     "Mon": "Maandag",
@@ -118,6 +119,9 @@ CHOICE_LABELS = {
     "sum_to_hourly": "Som naar uurwaarde",
     "mean": "Gemiddelde",
     "sum": "Som",
+    "east_west": "Oost-West",
+    "allow_export": "Terugleveren toestaan",
+    "no_export": "Niet terugleveren",
     "direct": "Direct laden",
     "smart": "Slim laden",
     "0.0": "Noord",
@@ -203,6 +207,7 @@ LABELS = {
     "pv_cap": "Vermogen zonnepanelen [kWp]",
     "pv_tilt": "Hellingshoek zonnepanelen [°]",
     "pv_azimuth": "Richting zonnepanelen",
+    "pv_no_export": "PV niet terugleveren",
     "pv_pr": "Prestatieverhouding zonnepanelen",
     "pv_inv_eff": "Omvormerrendement",
     "pv_temp_coeff": "Temperatuurcorrectie zonnepanelen [/°C]",
@@ -325,6 +330,7 @@ HELP_TEXTS = {
     "pv_cap": "Wat: totaal piekvermogen van de zonnepanelen. In het model schaalt dit de PV-opbrengst. Effect: hoger geeft meer zonnestroom en mogelijk meer teruglevering.",
     "pv_tilt": "Wat: hoek van de panelen ten opzichte van horizontaal. In het model beïnvloedt dit instraling op het paneel. Effect: andere hoek verschuift opbrengst per seizoen.",
     "pv_azimuth": "Wat: windrichting van de zonnepanelen. In het model wordt deze richting vertaald naar graden en beïnvloedt dit de PV-opbrengst. Effect: zuid geeft vaak hoge jaaropbrengst; oost geeft meer ochtendopbrengst en west meer middagopbrengst.",
+    "pv_no_export": "Wat: simuleert een EMS dat PV-overschot niet teruglevert. In het model wordt PV eerst lokaal gebruikt, daarna kan de batterij laden, en resterend overschot wordt afgetopt.",
     "pv_pr": "Wat: praktijkfactor voor verliezen zoals vuil, bekabeling en mismatch. In het model vermenigvuldigt dit de PV-opbrengst. Effect: lager verlaagt de berekende opbrengst.",
     "pv_inv_eff": "Wat: rendement van de omvormer. In het model wordt DC-opwek hiermee naar bruikbare AC-stroom vertaald. Effect: hoger geeft iets meer bruikbare stroom.",
     "pv_temp_coeff": "Wat: rendementsverlies bij warme panelen. In het model corrigeert dit PV-opbrengst op basis van temperatuur. Effect: sterker negatief verlaagt opbrengst op warme dagen.",
@@ -410,6 +416,7 @@ def app_state_defaults() -> dict:
         "pv_cap": 250.0,
         "pv_tilt": 35.0,
         "pv_azimuth": 180.0,
+        "pv_no_export": False,
         "pv_pr": 0.85,
         "pv_inv_eff": 0.98,
         "pv_temp_coeff": -0.004,
@@ -604,6 +611,8 @@ def clear_dynamic_widget_state() -> None:
 
 
 def closest_pv_azimuth(value) -> float:
+    if str(value) == PV_EAST_WEST_OPTION:
+        return PV_EAST_WEST_OPTION
     try:
         raw = float(value)
     except (TypeError, ValueError):
@@ -617,7 +626,9 @@ def normalize_input_constraints() -> list[str]:
 
     pv_before = st.session_state.get("pv_azimuth", 180.0)
     pv_after = closest_pv_azimuth(pv_before)
-    if float(pv_after) != float(pv_before):
+    if pv_after == PV_EAST_WEST_OPTION:
+        st.session_state["pv_azimuth"] = PV_EAST_WEST_OPTION
+    elif float(pv_after) != float(pv_before):
         st.session_state["pv_azimuth"] = pv_after
         corrections.append("Richting zonnepanelen is gekoppeld aan de dichtstbijzijnde windrichting.")
 
@@ -806,15 +817,15 @@ def consultant_summary(df: pd.DataFrame, grid_cap_kW: float | None) -> dict[str,
     annual_gas = float(kpis.get("annual_gas_input_kWh", 0.0) or 0.0)
     return {
         "Consultant summary": stoplight,
-        "Peak netimport vs contract": "-" if peak_ratio is None else f"{float(peak_ratio):.2f}x",
-        "P99 netimport vs contract": "-" if p99_ratio is None else f"{float(p99_ratio):.2f}x",
-        "Exceedance duration": "-" if grid_eval.get("contract_exceedance_hours") is None else f"{float(grid_eval['contract_exceedance_hours']):.1f} h",
-        "Peak netimport": f"{float(grid_eval.get('peak_grid_import_kW', 0.0) or 0.0):.1f} kW",
-        "Grid contract": "-" if grid_cap_kW is None else f"{float(grid_cap_kW):.1f} kW",
-        "Annual grid import": f"{float(kpis.get('annual_grid_import_kWh', 0.0) or 0.0):.0f} kWh",
-        "Annual grid export": f"{float(kpis.get('annual_grid_export_kWh', 0.0) or 0.0):.0f} kWh",
-        "Annual gas input": f"{annual_gas:.0f} kWh",
-        "Annual unmet heat": f"{unserved_heat:.0f} kWhth",
+        "Peak netimport vs contract": "-" if peak_ratio is None else f"{_fmt_nl_number(peak_ratio, 2)}x",
+        "P99 netimport vs contract": "-" if p99_ratio is None else f"{_fmt_nl_number(p99_ratio, 2)}x",
+        "Exceedance duration": "-" if grid_eval.get("contract_exceedance_hours") is None else _fmt_kpi(grid_eval["contract_exceedance_hours"], "h", 1),
+        "Peak netimport": _fmt_kpi(float(grid_eval.get("peak_grid_import_kW", 0.0) or 0.0), "kW", 1),
+        "Grid contract": "-" if grid_cap_kW is None else _fmt_kpi(grid_cap_kW, "kW", 1),
+        "Annual grid import": _fmt_kpi(float(kpis.get("annual_grid_import_kWh", 0.0) or 0.0), "kWh", 0),
+        "Annual grid export": _fmt_kpi(float(kpis.get("annual_grid_export_kWh", 0.0) or 0.0), "kWh", 0),
+        "Annual gas input": _fmt_kpi(annual_gas, "kWh", 0),
+        "Annual unmet heat": _fmt_kpi(unserved_heat, "kWhth", 0),
     }
 
 
@@ -963,6 +974,11 @@ COLUMN_LABELS = {
     "P_base_without_mobility_kW": "Basislast zonder mobiliteit",
     "P_load_total_kW": "Totaal verbruik",
     "P_pv_kW": "Zonnepanelen",
+    "P_pv_available_kW": "Beschikbare PV",
+    "P_pv_used_kW": "Benutte PV",
+    "P_pv_curtailed_kW": "Afgetopte PV",
+    "P_pv_east_kW": "PV oost",
+    "P_pv_west_kW": "PV west",
     "P_wkk_el_kW": "WKK elektrisch",
     "P_wkk_th_kW": "WKK warmte",
     "Q_wkk_used_kWth": "Benutte WKK-warmte",
@@ -1032,6 +1048,7 @@ def render_timeseries_plot(df: pd.DataFrame, cols: list[str], title: str, *, y_t
     time_col = plot_df.columns[0]
     long_df = plot_df.melt(id_vars=time_col, var_name="series", value_name="value")
     long_df["series_label"] = long_df["series"].map(lambda c: COLUMN_LABELS.get(c, c))
+    long_df["waarde"] = long_df["value"].map(lambda v: _fmt_kpi(v, y_title.split("[")[-1].rstrip("]") if "[" in y_title else "", 2))
     st.markdown(f"**{title}**")
     chart = (
         alt.Chart(long_df)
@@ -1040,7 +1057,7 @@ def render_timeseries_plot(df: pd.DataFrame, cols: list[str], title: str, *, y_t
             x=alt.X(f"{time_col}:T", title="Tijd"),
             y=alt.Y("value:Q", title=y_title),
             color=alt.Color("series_label:N", title="Reeks"),
-            tooltip=[f"{time_col}:T", "series_label:N", alt.Tooltip("value:Q", format=".2f", title=y_title)],
+            tooltip=[f"{time_col}:T", "series_label:N", alt.Tooltip("waarde:N", title=y_title)],
         )
         .interactive()
     )
@@ -1052,7 +1069,7 @@ def preview_week_chart(df: pd.DataFrame, cols: list[str], title: str, explanatio
     render_timeseries_plot(df, cols, title, explanation_key=explanation_key, context=context)
 
 
-def _fmt_kpi(value, unit: str = "", decimals: int = 0) -> str:
+def _fmt_nl_number(value, decimals: int = 0) -> str:
     if value is None:
         return "-"
     try:
@@ -1065,7 +1082,22 @@ def _fmt_kpi(value, unit: str = "", decimals: int = 0) -> str:
         text = f"{value_f:,.0f}"
     else:
         text = f"{value_f:,.{decimals}f}"
+    return text.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _fmt_kpi(value, unit: str = "", decimals: int = 0) -> str:
+    text = _fmt_nl_number(value, decimals)
+    if text == "-":
+        return text
     return f"{text} {unit}".strip()
+
+
+def _format_nl_dataframe(df: pd.DataFrame, decimals: int = 2) -> pd.DataFrame:
+    out = df.copy()
+    for col in out.columns:
+        if pd.api.types.is_numeric_dtype(out[col]):
+            out[col] = out[col].map(lambda v: _fmt_nl_number(v, decimals))
+    return out
 
 
 KPI_HELP_TEXTS = {
@@ -1181,7 +1213,7 @@ GENERATION_CATEGORIES = [
 ]
 
 ELECTRICITY_SUPPLY_CATEGORIES = [
-    ("Zonnepanelen", "P_pv_kW"),
+    ("Zonnepanelen benut", "P_pv_used_kW"),
     ("WKK elektrisch", "P_wkk_el_kW"),
     ("Batterij ontladen", "P_battery_discharge_kW"),
     ("Netimport", "P_grid_import_kW"),
@@ -1290,6 +1322,8 @@ def render_donut_chart(title: str, data: pd.DataFrame, *, unit: str = "kWh") -> 
     if data.empty or float(data["energie_kWh"].sum()) <= 0:
         st.info(f"Geen data beschikbaar voor {title.lower()}.")
         return
+    data = data.copy()
+    data["energie"] = data["energie_kWh"].map(lambda v: _fmt_kpi(v, unit, 0))
     st.markdown(f"**{title}**")
     chart = (
         alt.Chart(data)
@@ -1299,7 +1333,7 @@ def render_donut_chart(title: str, data: pd.DataFrame, *, unit: str = "kWh") -> 
             color=alt.Color("categorie:N", title="Categorie"),
             tooltip=[
                 "categorie:N",
-                alt.Tooltip("energie_kWh:Q", format=",.0f", title=f"Energie [{unit}]"),
+                alt.Tooltip("energie:N", title=f"Energie [{unit}]"),
             ],
         )
     )
@@ -1310,6 +1344,8 @@ def render_stacked_bar_chart(title: str, data: pd.DataFrame, *, x_col: str = "se
     if data.empty:
         st.info(f"Geen data beschikbaar voor {title.lower()}.")
         return
+    data = data.copy()
+    data["energie"] = data["energie_kWh"].map(lambda v: _fmt_kpi(v, unit, 0))
     st.markdown(f"**{title}**")
     chart = (
         alt.Chart(data)
@@ -1321,7 +1357,7 @@ def render_stacked_bar_chart(title: str, data: pd.DataFrame, *, x_col: str = "se
             tooltip=[
                 f"{x_col}:N",
                 "categorie:N",
-                alt.Tooltip("energie_kWh:Q", format=",.0f", title=f"Energie [{unit}]"),
+                alt.Tooltip("energie:N", title=f"Energie [{unit}]"),
             ],
         )
         .interactive()
@@ -1333,6 +1369,8 @@ def render_monthly_stacked_bar_chart(title: str, data: pd.DataFrame, *, unit: st
     if data.empty:
         st.info(f"Geen data beschikbaar voor {title.lower()}.")
         return
+    data = data.copy()
+    data["energie"] = data["energie_kWh"].map(lambda v: _fmt_kpi(v, unit, 0))
     st.markdown(f"**{title}**")
     chart = (
         alt.Chart(data)
@@ -1344,7 +1382,7 @@ def render_monthly_stacked_bar_chart(title: str, data: pd.DataFrame, *, unit: st
             tooltip=[
                 alt.Tooltip("maand:N", title="Maand"),
                 "categorie:N",
-                alt.Tooltip("energie_kWh:Q", format=",.0f", title=f"Energie [{unit}]"),
+                alt.Tooltip("energie:N", title=f"Energie [{unit}]"),
             ],
         )
         .interactive()
@@ -1357,6 +1395,8 @@ def render_grouped_monthly_energy_chart(title: str, data: pd.DataFrame, *, unit:
     if data.empty:
         st.info(f"Geen data beschikbaar voor {title.lower()}.")
         return
+    data = data.copy()
+    data["energie"] = data["energie_kWh"].map(lambda v: _fmt_kpi(v, unit, 0))
     st.markdown(f"**{title}**")
     chart = (
         alt.Chart(data)
@@ -1369,7 +1409,7 @@ def render_grouped_monthly_energy_chart(title: str, data: pd.DataFrame, *, unit:
             tooltip=[
                 alt.Tooltip("maand:N", title="Maand"),
                 "categorie:N",
-                alt.Tooltip("energie_kWh:Q", format=",.0f", title=f"Energie [{unit}]"),
+                alt.Tooltip("energie:N", title=f"Energie [{unit}]"),
             ],
         )
         .interactive()
@@ -1382,6 +1422,8 @@ def render_stacked_area_chart(title: str, data: pd.DataFrame, *, unit: str = "kW
     if data.empty:
         st.info(f"Geen data beschikbaar voor {title.lower()}.")
         return
+    data = data.copy()
+    data["vermogen"] = data["vermogen_kW"].map(lambda v: _fmt_kpi(v, unit, 1))
     st.markdown(f"**{title}**")
     chart = (
         alt.Chart(data)
@@ -1393,7 +1435,7 @@ def render_stacked_area_chart(title: str, data: pd.DataFrame, *, unit: str = "kW
             tooltip=[
                 "timestamp:T",
                 "categorie:N",
-                alt.Tooltip("vermogen_kW:Q", format=",.1f", title=f"Vermogen [{unit}]"),
+                alt.Tooltip("vermogen:N", title=f"Vermogen [{unit}]"),
             ],
         )
         .interactive()
@@ -1405,6 +1447,8 @@ def render_daily_energy_chart(title: str, data: pd.DataFrame, *, unit: str = "kW
     if data.empty:
         st.info(f"Geen data beschikbaar voor {title.lower()}.")
         return
+    data = data.copy()
+    data["energie"] = data["energie_kWh"].map(lambda v: _fmt_kpi(v, unit, 0))
     st.markdown(f"**{title}**")
     chart = (
         alt.Chart(data)
@@ -1416,7 +1460,7 @@ def render_daily_energy_chart(title: str, data: pd.DataFrame, *, unit: str = "kW
             tooltip=[
                 "datum:T",
                 "categorie:N",
-                alt.Tooltip("energie_kWh:Q", format=",.0f", title=f"Energie [{unit}]"),
+                alt.Tooltip("energie:N", title=f"Energie [{unit}]"),
             ],
         )
         .interactive()
@@ -1428,6 +1472,8 @@ def render_daily_stacked_area_chart(title: str, data: pd.DataFrame, *, unit: str
     if data.empty:
         st.info(f"Geen data beschikbaar voor {title.lower()}.")
         return
+    data = data.copy()
+    data["energie"] = data["energie_kWh"].map(lambda v: _fmt_kpi(v, unit, 0))
     st.markdown(f"**{title}**")
     chart = (
         alt.Chart(data)
@@ -1439,7 +1485,7 @@ def render_daily_stacked_area_chart(title: str, data: pd.DataFrame, *, unit: str
             tooltip=[
                 "datum:T",
                 "categorie:N",
-                alt.Tooltip("energie_kWh:Q", format=",.0f", title=f"Energie [{unit}]"),
+                alt.Tooltip("energie:N", title=f"Energie [{unit}]"),
             ],
         )
         .interactive()
@@ -1496,6 +1542,8 @@ def render_peak_grid_week_interactive(df: pd.DataFrame, contract_kW: float | Non
         "P_hp_el_kW",
         "P_heat_ref_el_kW",
         "P_pv_kW",
+        "P_pv_used_kW",
+        "P_pv_curtailed_kW",
         "P_wkk_el_kW",
         "P_battery_discharge_kW",
     ]
@@ -1507,6 +1555,8 @@ def render_peak_grid_week_interactive(df: pd.DataFrame, contract_kW: float | Non
     context_cols = [c for c in available if c != focus_col]
     context_long = plot_df[["timestamp"] + context_cols].melt(id_vars="timestamp", var_name="serie", value_name="vermogen_kW")
     context_long["serie"] = context_long["serie"].map(lambda c: COLUMN_LABELS.get(c, c))
+    context_long["vermogen"] = context_long["vermogen_kW"].map(lambda v: _fmt_kpi(v, "kW", 1))
+    focus_df["vermogen"] = focus_df["vermogen_kW"].map(lambda v: _fmt_kpi(v, "kW", 1))
 
     context_layer = (
         alt.Chart(context_long)
@@ -1515,7 +1565,7 @@ def render_peak_grid_week_interactive(df: pd.DataFrame, contract_kW: float | Non
             x=alt.X("timestamp:T", title="Tijd"),
             y=alt.Y("vermogen_kW:Q", title="Vermogen [kW]"),
             color=alt.Color("serie:N", title="Reeks"),
-            tooltip=["timestamp:T", "serie:N", alt.Tooltip("vermogen_kW:Q", format=",.1f")],
+            tooltip=["timestamp:T", "serie:N", alt.Tooltip("vermogen:N", title="Vermogen")],
         )
     )
     focus_layer = (
@@ -1524,7 +1574,7 @@ def render_peak_grid_week_interactive(df: pd.DataFrame, contract_kW: float | Non
         .encode(
             x=alt.X("timestamp:T", title="Tijd"),
             y=alt.Y("vermogen_kW:Q", title="Vermogen [kW]"),
-            tooltip=["timestamp:T", "serie:N", alt.Tooltip("vermogen_kW:Q", format=",.1f", title="Netimport [kW]")],
+            tooltip=["timestamp:T", "serie:N", alt.Tooltip("vermogen:N", title="Netimport")],
         )
     )
     layers = [context_layer, focus_layer]
@@ -1537,7 +1587,7 @@ def render_peak_grid_week_interactive(df: pd.DataFrame, contract_kW: float | Non
         )
     st.markdown("**Zwaarste netweek**")
     st.altair_chart(alt.layer(*layers).interactive(), width='stretch')
-    render_plot_explanation("grid_week", f"Contractvermogen: {'niet ingesteld' if contract_kW is None else f'{float(contract_kW):.1f} kW'}.")
+    render_plot_explanation("grid_week", f"Contractvermogen: {'niet ingesteld' if contract_kW is None else _fmt_kpi(contract_kW, 'kW', 1)}.")
 
 
 def render_heat_week_interactive(df: pd.DataFrame) -> None:
@@ -1583,6 +1633,8 @@ def render_load_match_balance_charts(df: pd.DataFrame) -> None:
     st.markdown("**Dagelijkse netafhankelijkheid**")
     layers = []
     if not flow_data.empty:
+        flow_data = flow_data.copy()
+        flow_data["energie"] = flow_data["energie_kWh"].map(lambda v: _fmt_kpi(v, "kWh/dag", 0))
         layers.append(
             alt.Chart(flow_data)
             .mark_bar(opacity=0.75)
@@ -1593,13 +1645,14 @@ def render_load_match_balance_charts(df: pd.DataFrame) -> None:
                 tooltip=[
                     "datum:T",
                     "categorie:N",
-                    alt.Tooltip("energie_kWh:Q", format=",.0f", title="Energie [kWh/dag]"),
+                    alt.Tooltip("energie:N", title="Energie [kWh/dag]"),
                 ],
             )
         )
     if not load_data.empty:
         load_line = load_data.copy()
         load_line["categorie"] = "Totaal verbruik"
+        load_line["energie"] = load_line["energie_kWh"].map(lambda v: _fmt_kpi(v, "kWh/dag", 0))
         layers.append(
             alt.Chart(load_line)
             .mark_line(strokeWidth=2.4, color="#3D3D3D")
@@ -1609,7 +1662,7 @@ def render_load_match_balance_charts(df: pd.DataFrame) -> None:
                 tooltip=[
                     "datum:T",
                     "categorie:N",
-                    alt.Tooltip("energie_kWh:Q", format=",.0f", title="Totaal verbruik [kWh/dag]"),
+                    alt.Tooltip("energie:N", title="Totaal verbruik [kWh/dag]"),
                 ],
             )
         )
@@ -1685,7 +1738,7 @@ def render_load_calculation_results(df: pd.DataFrame) -> None:
         render_monthly_stacked_bar_chart("Elektrische impact van warmte en koeling", heat_electric)
 
     with st.expander("Resultaatdata bekijken", expanded=False):
-        st.dataframe(df.head(200))
+        st.dataframe(_format_nl_dataframe(df.head(200)))
 
 
 def render_generation_calculation_results(df: pd.DataFrame) -> None:
@@ -1694,6 +1747,8 @@ def render_generation_calculation_results(df: pd.DataFrame) -> None:
         [
             ("Piek totale opwek", peak_value(df, "P_generation_total_kW"), "kW", 1),
             ("Jaaropwek PV", annual_sum(df, "P_pv_kW"), "kWh", 0),
+            ("Benutte PV", annual_sum(df, "P_pv_used_kW"), "kWh", 0),
+            ("Afgetopte PV", annual_sum(df, "P_pv_curtailed_kW"), "kWh", 0),
             ("Jaaropwek WKK", annual_sum(df, "P_wkk_el_kW"), "kWh", 0),
             ("Piek netimport", peak_value(df, "P_grid_import_kW"), "kW", 1),
         ]
@@ -1721,7 +1776,7 @@ def plot_peak_grid_import_week_stacked(
     week_df = week_df.reset_index().rename(columns={"index": "timestamp"})
 
     supply_cols = [
-        "P_pv_kW",
+        "P_pv_used_kW" if "P_pv_used_kW" in week_df.columns else "P_pv_kW",
         "P_wkk_el_kW",
         "P_battery_discharge_kW",
         "P_grid_import_kW",
@@ -1740,6 +1795,7 @@ def plot_peak_grid_import_week_stacked(
         value_name="power_kW",
     )
     supply_long["asset_label"] = supply_long["asset"].map(lambda c: COLUMN_LABELS.get(c, c))
+    supply_long["vermogen"] = supply_long["power_kW"].map(lambda v: _fmt_kpi(v, "kW", 2))
 
     stacked_area = (
         alt.Chart(supply_long)
@@ -1751,7 +1807,7 @@ def plot_peak_grid_import_week_stacked(
             tooltip=[
                 "timestamp:T",
                 "asset_label:N",
-                alt.Tooltip("power_kW:Q", format=".2f"),
+                alt.Tooltip("vermogen:N", title="Vermogen"),
             ],
         )
     )
@@ -1765,6 +1821,7 @@ def plot_peak_grid_import_week_stacked(
                 "contract_kW": float(contract_kW),
             }
         )
+        contract_df["contract"] = contract_df["contract_kW"].map(lambda v: _fmt_kpi(v, "kW", 2))
 
         contract_line = (
             alt.Chart(contract_df)
@@ -1774,7 +1831,7 @@ def plot_peak_grid_import_week_stacked(
                 y=alt.Y("contract_kW:Q", title="Vermogen [kW]"),
                 tooltip=[
                     "timestamp:T",
-                    alt.Tooltip("contract_kW:Q", format=".2f", title="Contractvermogen"),
+                    alt.Tooltip("contract:N", title="Contractvermogen"),
                 ],
             )
         )
@@ -1783,17 +1840,18 @@ def plot_peak_grid_import_week_stacked(
 
     chart = alt.layer(*layers).interactive()
     st.altair_chart(chart, width='stretch')
-    render_plot_explanation("grid_week", f"Contractvermogen: {'niet ingesteld' if contract_kW is None else f'{float(contract_kW):.1f} kW'}.")
+    render_plot_explanation("grid_week", f"Contractvermogen: {'niet ingesteld' if contract_kW is None else _fmt_kpi(contract_kW, 'kW', 1)}.")
 
     if "battery_soc_pct" in week_df.columns:
         st.markdown("**Vullingsgraad batterij [%]**")
+        week_df["battery_soc_label"] = week_df["battery_soc_pct"].map(lambda v: _fmt_kpi(v, "%", 2))
         soc_chart = (
             alt.Chart(week_df)
             .mark_line(strokeWidth=2)
             .encode(
                 x=alt.X("timestamp:T", title="Tijd"),
                 y=alt.Y("battery_soc_pct:Q", title="Vullingsgraad batterij [%]"),
-                tooltip=["timestamp:T", alt.Tooltip("battery_soc_pct:Q", format=".2f")],
+                tooltip=["timestamp:T", alt.Tooltip("battery_soc_label:N", title="Vullingsgraad")],
             )
             .interactive()
         )
@@ -1813,6 +1871,8 @@ def energy_kpis(df: pd.DataFrame) -> dict:
         "Piek boven contractvermogen [kW]": round(peak_contract_excess, 2),
         "Jaarverbruik elektriciteit [kWh]": round(float((df.get("P_load_total_kW", zero) * DT_HOURS).sum()), 0),
         "Jaaropwek zonnepanelen [kWh]": round(float((df.get("P_pv_kW", zero) * DT_HOURS).sum()), 0),
+        "Jaarlijks benutte PV [kWh]": round(float((df.get("P_pv_used_kW", df.get("P_pv_kW", zero)) * DT_HOURS).sum()), 0),
+        "Jaarlijks afgetopte PV [kWh]": round(float((df.get("P_pv_curtailed_kW", zero) * DT_HOURS).sum()), 0),
         "Jaaropwek WKK elektrisch [kWh]": round(float((df.get("P_wkk_el_kW", zero) * DT_HOURS).sum()), 0),
         "Jaarverbruik warmtepomp elektriciteit [kWh]": round(float((df.get("P_hp_el_kW", zero) * DT_HOURS).sum()), 0),
         "Jaarverbruik referentie verwarming elektriciteit [kWh]": round(float((df.get("P_heat_ref_el_kW", zero) * DT_HOURS).sum()), 0),
@@ -1894,24 +1954,24 @@ def render_grid_stoplight(df: pd.DataFrame, grid_cap_kW: float | None, cfg=None)
     p99 = grid_eval.get("p99_grid_import_kW")
 
     if status == "green":
-        st.success(f"Groen · piek netimport {peak:.1f} kW bij contract {float(contract):.1f} kW")
+        st.success(f"Groen · piek netimport {_fmt_kpi(peak, 'kW', 1)} bij contract {_fmt_kpi(contract, 'kW', 1)}")
     elif status == "orange":
-        st.warning(f"Oranje · netimport zit dicht op of net boven contract ({peak:.1f} / {float(contract):.1f} kW)")
+        st.warning(f"Oranje · netimport zit dicht op of net boven contract ({_fmt_kpi(peak, 'kW', 1)} / {_fmt_kpi(contract, 'kW', 1)})")
     elif status == "red":
-        st.error(f"Rood · netimport overschrijdt contract ({peak:.1f} / {float(contract):.1f} kW)")
+        st.error(f"Rood · netimport overschrijdt contract ({_fmt_kpi(peak, 'kW', 1)} / {_fmt_kpi(contract, 'kW', 1)})")
     else:
         st.info("Stoplicht onbekend: stel een contractvermogen > 0 in.")
         return grid_eval
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Piek netimport [kW]", f"{peak:.1f}")
-    c2.metric("Piek / contract", "-" if peak_ratio is None else f"{float(peak_ratio):.2f}x")
-    c3.metric("Duur overschrijding [h]", "-" if exceed_h is None else f"{float(exceed_h):.2f}")
-    c4.metric("Energie boven contract [kWh]", "-" if exceed_energy is None else f"{float(exceed_energy):.1f}")
-    c5.metric("Langste overschrijding [h]", "-" if worst_run is None else f"{float(worst_run):.2f}")
+    c1.metric("Piek netimport [kW]", _fmt_nl_number(peak, 1))
+    c2.metric("Piek / contract", "-" if peak_ratio is None else f"{_fmt_nl_number(peak_ratio, 2)}x")
+    c3.metric("Duur overschrijding [h]", "-" if exceed_h is None else _fmt_nl_number(exceed_h, 2))
+    c4.metric("Energie boven contract [kWh]", "-" if exceed_energy is None else _fmt_nl_number(exceed_energy, 1))
+    c5.metric("Langste overschrijding [h]", "-" if worst_run is None else _fmt_nl_number(worst_run, 2))
 
     if p99 is not None:
-        st.caption(f"P99 netimport: {float(p99):.1f} kW")
+        st.caption(f"P99 netimport: {_fmt_kpi(p99, 'kW', 1)}")
 
     return grid_eval
 
@@ -1929,6 +1989,9 @@ def render_grid_duration_curve(df: pd.DataFrame, grid_cap_kW: float | None) -> N
     duration_long = duration_long.dropna(subset=["power_kW"])
 
     st.markdown("**Duurcurve netbelasting**")
+    duration_long = duration_long.copy()
+    duration_long["duur"] = duration_long["duration_h"].map(lambda v: _fmt_kpi(v, "h", 0))
+    duration_long["vermogen"] = duration_long["power_kW"].map(lambda v: _fmt_kpi(v, "kW", 1))
     chart = (
         alt.Chart(duration_long)
         .mark_line(strokeWidth=2)
@@ -1937,26 +2000,26 @@ def render_grid_duration_curve(df: pd.DataFrame, grid_cap_kW: float | None) -> N
             y=alt.Y("power_kW:Q", title="Vermogen [kW]"),
             color=alt.Color("series:N", title="Serie"),
             tooltip=[
-                alt.Tooltip("duration_h:Q", format=".0f"),
-                alt.Tooltip("power_kW:Q", format=".1f"),
+                alt.Tooltip("duur:N", title="Duur"),
+                alt.Tooltip("vermogen:N", title="Vermogen"),
                 "series:N"
             ],
         )
         .interactive()
     )
     st.altair_chart(chart, width='stretch')
-    render_plot_explanation("duration", f"Contractvermogen: {'niet ingesteld' if grid_cap_kW is None else f'{float(grid_cap_kW):.1f} kW'}.")
+    render_plot_explanation("duration", f"Contractvermogen: {'niet ingesteld' if grid_cap_kW is None else _fmt_kpi(grid_cap_kW, 'kW', 1)}.")
 
 
 def render_measurement_metadata(metadata: dict | None) -> None:
     if not metadata:
         return
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Rijen", str(metadata.get("row_count", "-")))
-    c2.metric("Dubbele tijdstippen", str(metadata.get("duplicate_timestamp_count", "-")))
+    c1.metric("Rijen", _fmt_nl_number(metadata.get("row_count"), 0) if metadata.get("row_count") is not None else "-")
+    c2.metric("Dubbele tijdstippen", _fmt_nl_number(metadata.get("duplicate_timestamp_count"), 0) if metadata.get("duplicate_timestamp_count") is not None else "-")
     c3.metric("Detecteerde resolutie", str(metadata.get("detected_resolution") or "-")[:18])
     coverage = metadata.get("coverage_fraction_vs_expected")
-    c4.metric("Dekking", "-" if coverage is None else f"{100.0 * float(coverage):.1f}%")
+    c4.metric("Dekking", "-" if coverage is None else f"{_fmt_nl_number(100.0 * float(coverage), 1)}%")
 
     st.caption(
         f"Bron: {metadata.get('source_path', '-') } · tijdzone: {metadata.get('timezone', '-') } · "
@@ -1991,19 +2054,19 @@ def render_validation_results(validation: dict | None) -> None:
             continue
         st.markdown(f"***{validation_label_by_period[label]}***")
         c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("N", m.get("n_points", 0))
-        c2.metric("RMSE", "-" if pd.isna(m.get("rmse")) else f"{float(m['rmse']):.2f}")
-        c3.metric("MAE", "-" if pd.isna(m.get("mae")) else f"{float(m['mae']):.2f}")
-        c4.metric("NMBE [%]", "-" if pd.isna(m.get("nmbe_pct")) else f"{float(m['nmbe_pct']):.2f}")
-        c5.metric("CV(RMSE) [%]", "-" if pd.isna(m.get("cv_rmse_pct")) else f"{float(m['cv_rmse_pct']):.2f}")
+        c1.metric("N", _fmt_nl_number(m.get("n_points", 0), 0))
+        c2.metric("RMSE", "-" if pd.isna(m.get("rmse")) else _fmt_nl_number(m["rmse"], 2))
+        c3.metric("MAE", "-" if pd.isna(m.get("mae")) else _fmt_nl_number(m["mae"], 2))
+        c4.metric("NMBE [%]", "-" if pd.isna(m.get("nmbe_pct")) else _fmt_nl_number(m["nmbe_pct"], 2))
+        c5.metric("CV(RMSE) [%]", "-" if pd.isna(m.get("cv_rmse_pct")) else _fmt_nl_number(m["cv_rmse_pct"], 2))
 
     if peak:
         st.markdown("**Vergelijking piekvermogen**")
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Piek simulatie [kW]", "-" if pd.isna(peak.get("peak_simulated")) else f"{float(peak['peak_simulated']):.2f}")
-        c2.metric("Piek meting [kW]", "-" if pd.isna(peak.get("peak_measured")) else f"{float(peak['peak_measured']):.2f}")
-        c3.metric("Piekverschil [kW]", "-" if pd.isna(peak.get("peak_bias_kW")) else f"{float(peak['peak_bias_kW']):.2f}")
-        c4.metric("Piekverschil [%]", "-" if pd.isna(peak.get("peak_bias_pct")) else f"{float(peak['peak_bias_pct']):.2f}")
+        c1.metric("Piek simulatie [kW]", "-" if pd.isna(peak.get("peak_simulated")) else _fmt_nl_number(peak["peak_simulated"], 2))
+        c2.metric("Piek meting [kW]", "-" if pd.isna(peak.get("peak_measured")) else _fmt_nl_number(peak["peak_measured"], 2))
+        c3.metric("Piekverschil [kW]", "-" if pd.isna(peak.get("peak_bias_kW")) else _fmt_nl_number(peak["peak_bias_kW"], 2))
+        c4.metric("Piekverschil [%]", "-" if pd.isna(peak.get("peak_bias_pct")) else _fmt_nl_number(peak["peak_bias_pct"], 2))
 
     aligned = validation.get("aligned")
     if aligned is not None and not aligned.empty:
@@ -2011,6 +2074,7 @@ def render_validation_results(validation: dict | None) -> None:
         compare_df = aligned[["simulated", "measured"]].reset_index()
         ts_col = compare_df.columns[0]
         compare_long = compare_df.melt(id_vars=ts_col, var_name="series", value_name="value")
+        compare_long["waarde"] = compare_long["value"].map(lambda v: _fmt_kpi(v, "kW", 2))
         chart = (
             alt.Chart(compare_long)
             .mark_line()
@@ -2018,7 +2082,7 @@ def render_validation_results(validation: dict | None) -> None:
                 x=alt.X(f"{ts_col}:T", title="Tijd"),
                 y=alt.Y("value:Q", title="Vermogen"),
                 color=alt.Color("series:N", title="Serie"),
-                tooltip=[f"{ts_col}:T", "series:N", alt.Tooltip("value:Q", format=".2f")],
+                tooltip=[f"{ts_col}:T", "series:N", alt.Tooltip("waarde:N", title="Vermogen")],
             )
             .interactive()
         )
@@ -2027,6 +2091,9 @@ def render_validation_results(validation: dict | None) -> None:
 
         st.markdown("**Spreiding simulatie en meting**")
         scatter_base = aligned.reset_index()[["measured", "simulated", "residual"]].copy()
+        scatter_base["meting"] = scatter_base["measured"].map(lambda v: _fmt_kpi(v, "kW", 2))
+        scatter_base["simulatie"] = scatter_base["simulated"].map(lambda v: _fmt_kpi(v, "kW", 2))
+        scatter_base["residu"] = scatter_base["residual"].map(lambda v: _fmt_kpi(v, "kW", 2))
         lo = float(min(scatter_base["measured"].min(), scatter_base["simulated"].min()))
         hi = float(max(scatter_base["measured"].max(), scatter_base["simulated"].max()))
         ref_df = pd.DataFrame({"ref_x": [lo, hi], "ref_y": [lo, hi]})
@@ -2034,7 +2101,7 @@ def render_validation_results(validation: dict | None) -> None:
             alt.Chart(scatter_base).mark_circle(size=45).encode(
                 x=alt.X("measured:Q", title="Meting"),
                 y=alt.Y("simulated:Q", title="Simulatie"),
-                tooltip=[alt.Tooltip("measured:Q", format=".2f"), alt.Tooltip("simulated:Q", format=".2f"), alt.Tooltip("residual:Q", format=".2f")],
+                tooltip=[alt.Tooltip("meting:N", title="Meting"), alt.Tooltip("simulatie:N", title="Simulatie"), alt.Tooltip("residu:N", title="Residu")],
             ),
             alt.Chart(ref_df).mark_line(strokeDash=[6, 4]).encode(x="ref_x:Q", y="ref_y:Q")
         ).interactive()
@@ -2042,13 +2109,15 @@ def render_validation_results(validation: dict | None) -> None:
         render_plot_explanation("validation", "Punten dicht bij de diagonale lijn betekenen dat simulatie en meting goed overeenkomen.")
 
         st.markdown("**Verschil tussen simulatie en meting**")
+        residual_df = aligned.reset_index()
+        residual_df["residu"] = residual_df["residual"].map(lambda v: _fmt_kpi(v, "kW", 2))
         residual_chart = (
-            alt.Chart(aligned.reset_index())
+            alt.Chart(residual_df)
             .mark_line()
             .encode(
                 x=alt.X(f"{aligned.reset_index().columns[0]}:T", title="Tijd"),
                 y=alt.Y("residual:Q", title="Verschil [simulatie - meting]"),
-                tooltip=[alt.Tooltip("residual:Q", format=".2f")],
+                tooltip=[alt.Tooltip("residu:N", title="Residu")],
             )
             .interactive()
         )
@@ -2061,6 +2130,7 @@ def render_validation_results(validation: dict | None) -> None:
         monthly_reset = monthly[["simulated", "measured"]].reset_index()
         ts_col = monthly_reset.columns[0]
         monthly_long = monthly_reset.melt(id_vars=ts_col, var_name="series", value_name="value")
+        monthly_long["waarde"] = monthly_long["value"].map(lambda v: _fmt_nl_number(v, 2))
         month_chart = (
             alt.Chart(monthly_long)
             .mark_bar()
@@ -2069,7 +2139,7 @@ def render_validation_results(validation: dict | None) -> None:
                 y=alt.Y("value:Q", title="Totaal"),
                 color=alt.Color("series:N", title="Serie"),
                 xOffset="series:N",
-                tooltip=[f"{ts_col}:T", "series:N", alt.Tooltip("value:Q", format=".2f")],
+                tooltip=[f"{ts_col}:T", "series:N", alt.Tooltip("waarde:N", title="Totaal")],
             )
             .interactive()
         )
@@ -2090,14 +2160,14 @@ def render_sanity_checks(df: pd.DataFrame | None) -> None:
     c2.metric("Negatieve fysica", "Nee" if checks.get("no_non_physical_negatives") else "Ja")
     c3.metric("Vermogensgrenzen", "Ok" if checks.get("all_capacity_constraints_respected") else "Overschreden")
     st.caption(
-        f"max |heat residual| = {float(checks.get('heat_balance_max_abs_residual_kWth', float('nan'))):.4f} kWth"
+        f"max |heat residual| = {_fmt_kpi(checks.get('heat_balance_max_abs_residual_kWth', float('nan')), 'kWth', 4)}"
     )
     if checks.get("non_physical_negative_columns"):
         st.warning("Niet-fysische negatieve waarden in: " + ", ".join(checks["non_physical_negative_columns"]))
     violations = checks.get("capacity_violations") or {}
     active_violations = {k: v for k, v in violations.items() if float(v) > 1e-9}
     if active_violations:
-        st.warning("Overschreden vermogensgrenzen: " + ", ".join(f"{k}={v:.3f}" for k, v in active_violations.items()))
+        st.warning("Overschreden vermogensgrenzen: " + ", ".join(f"{k}={_fmt_nl_number(v, 3)}" for k, v in active_violations.items()))
 
 
 def build_export_bundle(df: pd.DataFrame, measurement_metadata: dict | None = None, validation_result: dict | None = None) -> bytes:
@@ -2449,6 +2519,8 @@ def render_results_dashboard(df: pd.DataFrame, contract: float | None, cfg=None)
     render_kpi_row(
         [
             ("Jaaropwek PV", pv_year, "kWh", 0),
+            ("Benutte PV", kpis.get("Jaarlijks benutte PV [kWh]"), "kWh", 0),
+            ("Afgetopte PV", kpis.get("Jaarlijks afgetopte PV [kWh]"), "kWh", 0),
             ("Jaaropwek WKK", annual_sum(df, "P_wkk_el_kW"), "kWh", 0),
             ("Teruglevering", kpis.get("Jaarlijkse teruglevering [kWh]"), "kWh", 0),
             ("PV-vollasturen", pv_year / pv_capacity if pv_capacity > 0 else None, "h", 0),
@@ -2499,7 +2571,7 @@ def render_results_dashboard(df: pd.DataFrame, contract: float | None, cfg=None)
     with st.expander("Samenvatting voor consultant", expanded=False):
         st.json(consultant_summary(df, contract))
     with st.expander("Resultaatdata bekijken", expanded=False):
-        st.dataframe(df.head(200))
+        st.dataframe(_format_nl_dataframe(df.head(200)))
 
     export_zip = build_export_bundle(
         df,
@@ -2608,6 +2680,8 @@ def get_poverig_overrides():
 
 def build_cfg():
     pv_site_cap = None if float(st.session_state["pv_site_cap"]) <= 0 else float(st.session_state["pv_site_cap"])
+    pv_direction = st.session_state.get("pv_azimuth", 180.0)
+    pv_is_east_west = str(pv_direction) == PV_EAST_WEST_OPTION
     return make_default_load_config(
         building_type=BuildingType(st.session_state["def_building_type"]),
         year_class=YearClass(st.session_state["def_year_class"]),
@@ -2625,7 +2699,10 @@ def build_cfg():
             "enabled": bool(st.session_state["pv_enabled"]),
             "installed_capacity_kWp": float(st.session_state["pv_cap"]),
             "tilt_deg": float(st.session_state["pv_tilt"]),
-            "azimuth_deg": float(st.session_state["pv_azimuth"]),
+            "azimuth_deg": 180.0 if pv_is_east_west else float(pv_direction),
+            "orientation_mode": "east_west" if pv_is_east_west else "single",
+            "export_mode": "no_export" if bool(st.session_state.get("pv_no_export", False)) else "allow_export",
+            "east_west_split": 0.5,
             "performance_ratio": float(st.session_state["pv_pr"]),
             "inverter_efficiency": float(st.session_state["pv_inv_eff"]),
             "temp_coeff_per_C": float(st.session_state["pv_temp_coeff"]),
@@ -3318,7 +3395,7 @@ with load_tab:
         with c7:
             st.selectbox(label_for("def_shape"), [x.value for x in BuildingShape], key="def_shape", format_func=choice_label, help=help_for("def_shape"))
         with c8:
-            st.metric(label_for("def_shape_metric"), f"{float(SHAPE_FACTOR_BY_SHAPE[BuildingShape(st.session_state['def_shape'])]):.2f}")
+            st.metric(label_for("def_shape_metric"), _fmt_nl_number(SHAPE_FACTOR_BY_SHAPE[BuildingShape(st.session_state["def_shape"])], 2))
 
         st.checkbox(label_for("def_manual_shape"), key="def_manual_shape", help=help_for("def_manual_shape"))
         if st.session_state["def_manual_shape"]:
@@ -3440,10 +3517,10 @@ with load_tab:
         )
         mob_summary = mob_df.attrs.get("mobility_summary", {})
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Benodigd per auto", f"{float(mob_summary.get('energy_per_car_kWh', 0.0)):.1f} kWh")
-        c2.metric("Totaal nodig", f"{float(mob_summary.get('energy_required_kWh', 0.0)):.0f} kWh")
-        c3.metric("Geladen", f"{float(mob_summary.get('energy_charged_kWh', 0.0)):.0f} kWh")
-        c4.metric("Laadtekort", f"{float(mob_summary.get('energy_unserved_kWh', 0.0)):.0f} kWh")
+        c1.metric("Benodigd per auto", _fmt_kpi(mob_summary.get("energy_per_car_kWh", 0.0), "kWh", 1))
+        c2.metric("Totaal nodig", _fmt_kpi(mob_summary.get("energy_required_kWh", 0.0), "kWh", 0))
+        c3.metric("Geladen", _fmt_kpi(mob_summary.get("energy_charged_kWh", 0.0), "kWh", 0))
+        c4.metric("Laadtekort", _fmt_kpi(mob_summary.get("energy_unserved_kWh", 0.0), "kWh", 0))
         if float(mob_summary.get("energy_unserved_kWh", 0.0)) > 1e-6:
             st.warning("Niet alle gewenste laadenergie past binnen de gekozen laadmodus, aanwezigheidstijd en contractruimte.")
         preview_week_chart(
@@ -3451,7 +3528,7 @@ with load_tab:
             ["P_base_without_mobility_kW", "P_mobility_kW"],
             "Voorbeeld mobiliteit",
             "mobility",
-            f"Laadmodus: {choice_label(st.session_state['mob_charge_mode'])}. Contractvermogen: {float(st.session_state['grid_cap_kW']):.1f} kW.",
+            f"Laadmodus: {choice_label(st.session_state['mob_charge_mode'])}. Contractvermogen: {_fmt_kpi(st.session_state['grid_cap_kW'], 'kW', 1)}.",
         )
 
     with t_ov:
@@ -3508,7 +3585,7 @@ with generation_tab:
         with c4:
             st.selectbox(label_for("pv_azimuth"), PV_AZIMUTH_OPTIONS, key="pv_azimuth", format_func=choice_label, help=help_for("pv_azimuth"))
 
-        c5, c6, c7, c8 = st.columns(4)
+        c5, c6, c7, c8, c9 = st.columns(5)
         with c5:
             st.number_input(label_for("pv_pr"), min_value=0.0, max_value=1.2, step=0.01, key="pv_pr", help=help_for("pv_pr"))
         with c6:
@@ -3517,6 +3594,8 @@ with generation_tab:
             st.number_input(label_for("pv_temp_coeff"), step=0.001, key="pv_temp_coeff", help=help_for("pv_temp_coeff"))
         with c8:
             st.number_input(label_for("pv_site_cap"), min_value=0.0, step=10.0, key="pv_site_cap", help=help_for("pv_site_cap"))
+        with c9:
+            st.checkbox(label_for("pv_no_export"), key="pv_no_export", help=help_for("pv_no_export"))
 
         cfg = build_cfg()
         pv_df = simulate_pv(WEATHER_DF.index, cfg.pv, WEATHER_DF)
@@ -3525,7 +3604,7 @@ with generation_tab:
             ["P_pv_kW"],
             "Voorbeeld zonnepanelen",
             "pv",
-            f"Richting: {choice_label(st.session_state['pv_azimuth'])}. Vermogen: {float(st.session_state['pv_cap']):.0f} kWp.",
+            f"Richting: {choice_label(st.session_state['pv_azimuth'])}. Vermogen: {_fmt_nl_number(float(st.session_state['pv_cap']), 0)} kWp.",
         )
         pv_year = annual_sum(pv_df, "P_pv_kW")
         pv_capacity = float(cfg.pv.installed_capacity_kWp)
@@ -3803,7 +3882,7 @@ with validation_tab:
         preview_cols = [c for c in ["P_grid_import_kW", "P_grid_export_kW", "P_electric_load_kW", "F_gas_kW", "Q_heat_kWth"] if c in measurement_bundle["measured_15m"].columns]
         if preview_cols:
             render_timeseries_plot(measurement_bundle["measured_15m"], preview_cols, "Voorbeeld meetdata", explanation_key="validation")
-        st.dataframe(measurement_bundle["measured_15m"].head(100))
+        st.dataframe(_format_nl_dataframe(measurement_bundle["measured_15m"].head(100)))
 
     if st.session_state.get("last_total_df") is None:
         st.info("Bereken eerst de totale simulatie om validatie te kunnen doen.")
