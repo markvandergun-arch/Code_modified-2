@@ -1026,7 +1026,7 @@ PLOT_EXPLANATIONS = {
     "gas_week": "Deze grafiek toont de week met de hoogste gas- of brandstofvraag. De y-as is vermogen in kW; pieken wijzen op momenten waarop gasloos maken extra warmtecapaciteit, opslag of elektrische ruimte vraagt.",
     "battery_soc": "Deze grafiek toont de vullingsgraad van de batterij. Een vaak lege batterij kan pieken niet verlagen; een vaak volle batterij kan overschot niet opnemen.",
     "monthly_energy": "Deze grafiek toont maandtotalen. Hiermee zie je seizoenseffecten duidelijker dan in losse weekgrafieken, bijvoorbeeld winterse warmtevraag of zomerse PV-opwek.",
-    "load_match": "Deze grafiek toont hoe lokale opwek, verbruik, netimport en teruglevering zich tot elkaar verhouden. Veel netimport wijst op tekort aan lokale opwek op dat moment; veel teruglevering wijst op overschot dat mogelijk met opslag of sturing benut kan worden.",
+    "load_match": "Deze grafiek toont hoe benutte lokale opwek, verbruik, netimport en teruglevering zich tot elkaar verhouden. Bij PV niet terugleveren telt afgetopte PV niet mee als benutte lokale opwek.",
     "validation": "Deze grafiek vergelijkt simulatie met meetdata. Grote verschillen wijzen op ontbrekende aannames, verkeerde meeteenheid of een modelinstelling die moet worden bijgesteld.",
 }
 
@@ -1051,7 +1051,7 @@ def render_timeseries_plot(df: pd.DataFrame, cols: list[str], title: str, *, y_t
     long_df["series_label"] = long_df["series"].map(lambda c: COLUMN_LABELS.get(c, c))
     long_df["waarde"] = long_df["value"].map(lambda v: _fmt_kpi(v, y_title.split("[")[-1].rstrip("]") if "[" in y_title else "", 2))
     st.markdown(f"**{title}**")
-    chart = (
+    line = (
         alt.Chart(long_df)
         .mark_line(strokeWidth=2)
         .encode(
@@ -1060,8 +1060,18 @@ def render_timeseries_plot(df: pd.DataFrame, cols: list[str], title: str, *, y_t
             color=alt.Color("series_label:N", title="Reeks"),
             tooltip=[f"{time_col}:T", "series_label:N", alt.Tooltip("waarde:N", title=y_title)],
         )
-        .interactive()
     )
+    hover = (
+        alt.Chart(long_df)
+        .mark_point(size=180, opacity=0.001, filled=True)
+        .encode(
+            x=alt.X(f"{time_col}:T", title="Tijd"),
+            y=alt.Y("value:Q", title=y_title),
+            color=alt.Color("series_label:N", title="Reeks"),
+            tooltip=[f"{time_col}:T", "series_label:N", alt.Tooltip("waarde:N", title=y_title)],
+        )
+    )
+    chart = alt.layer(line, hover).interactive()
     st.altair_chart(chart, width='stretch')
     render_plot_explanation(explanation_key or "load_total", context)
 
@@ -1113,6 +1123,8 @@ KPI_HELP_TEXTS = {
     "Jaaropwek PV": "Wat: totale jaaropbrengst van zonnepanelen. In het model: PV-vermogen maal tijdstap, afhankelijk van vermogen, richting, helling en weer. Effect: meer PV verlaagt netimport maar kan ook teruglevering verhogen.",
     "Jaaropwek WKK": "Wat: totale elektrische jaaropwek van de WKK. In het model: dispatch volgens de gekozen WKK-regeling. Effect: kan netimport verlagen, maar gebruikt brandstof en levert ook warmte.",
     "Piekvermogen PV": "Wat: hoogste berekende PV-vermogen. In het model: maximum van de PV-tijdreeks. Effect: bepaalt hoeveel lokale opwek op zonnige momenten beschikbaar is.",
+    "Benutte PV": "Wat: deel van de PV-opwek dat lokaal nuttig wordt gebruikt. In het model: beschikbare PV minus afgetopte PV. Effect: laat zien hoeveel zonnestroom daadwerkelijk bijdraagt aan verbruik of opslag.",
+    "Afgetopte PV": "Wat: PV-opwek die niet lokaal gebruikt of opgeslagen kan worden en bij 'PV niet terugleveren' wordt weggeregeld. In het model: resterend overschot na directe vraag en batterij laden. Effect: hoge waarden wijzen op overschot, beperkte opslag of beperkte vraag rond zonnige uren.",
     "Piek WKK elektrisch": "Wat: hoogste elektrische WKK-output. In het model: begrensd door WKK-vermogen en regeling. Effect: kan pieken verlagen, maar beïnvloedt brandstofgebruik.",
     "Piek WKK warmte": "Wat: hoogste thermische WKK-output. In het model: gekoppeld aan elektrische WKK-output en thermisch rendement. Effect: helpt warmtevraag dekken, vooral als de regeling warmtevraag volgt.",
     "Netimport": "Wat: vermogen of energie uit het elektriciteitsnet. In het model: resterende vraag na lokale opwek en opslag. Effect: hoge waarden bepalen netcapaciteitsknelpunten.",
@@ -1451,7 +1463,7 @@ def render_daily_energy_chart(title: str, data: pd.DataFrame, *, unit: str = "kW
     data = data.copy()
     data["energie"] = data["energie_kWh"].map(lambda v: _fmt_kpi(v, unit, 0))
     st.markdown(f"**{title}**")
-    chart = (
+    line = (
         alt.Chart(data)
         .mark_line(strokeWidth=1.8)
         .encode(
@@ -1464,8 +1476,22 @@ def render_daily_energy_chart(title: str, data: pd.DataFrame, *, unit: str = "kW
                 alt.Tooltip("energie:N", title=f"Energie [{unit}]"),
             ],
         )
-        .interactive()
     )
+    hover = (
+        alt.Chart(data)
+        .mark_point(size=180, opacity=0.001, filled=True)
+        .encode(
+            x=alt.X("datum:T", title="Datum"),
+            y=alt.Y("energie_kWh:Q", title=f"Energie [{unit}]"),
+            color=alt.Color("categorie:N", title="Categorie"),
+            tooltip=[
+                "datum:T",
+                "categorie:N",
+                alt.Tooltip("energie:N", title=f"Energie [{unit}]"),
+            ],
+        )
+    )
+    chart = alt.layer(line, hover).interactive()
     st.altair_chart(chart, width='stretch')
 
 
@@ -1569,6 +1595,16 @@ def render_peak_grid_week_interactive(df: pd.DataFrame, contract_kW: float | Non
             tooltip=["timestamp:T", "serie:N", alt.Tooltip("vermogen:N", title="Vermogen")],
         )
     )
+    context_hover = (
+        alt.Chart(context_long)
+        .mark_point(size=180, opacity=0.001, filled=True)
+        .encode(
+            x=alt.X("timestamp:T", title="Tijd"),
+            y=alt.Y("vermogen_kW:Q", title="Vermogen [kW]"),
+            color=alt.Color("serie:N", title="Reeks"),
+            tooltip=["timestamp:T", "serie:N", alt.Tooltip("vermogen:N", title="Vermogen")],
+        )
+    )
     focus_layer = (
         alt.Chart(focus_df)
         .mark_line(strokeWidth=4.2, color="#0B5FFF")
@@ -1578,13 +1614,32 @@ def render_peak_grid_week_interactive(df: pd.DataFrame, contract_kW: float | Non
             tooltip=["timestamp:T", "serie:N", alt.Tooltip("vermogen:N", title="Netimport")],
         )
     )
-    layers = [context_layer, focus_layer]
+    focus_hover = (
+        alt.Chart(focus_df)
+        .mark_point(size=220, opacity=0.001, filled=True)
+        .encode(
+            x=alt.X("timestamp:T", title="Tijd"),
+            y=alt.Y("vermogen_kW:Q", title="Vermogen [kW]"),
+            tooltip=["timestamp:T", "serie:N", alt.Tooltip("vermogen:N", title="Netimport")],
+        )
+    )
+    layers = [context_layer, focus_layer, context_hover, focus_hover]
     if contract_kW is not None:
         contract_df = pd.DataFrame({"timestamp": plot_df["timestamp"], "contract_kW": float(contract_kW)})
+        contract_df["contract"] = contract_df["contract_kW"].map(lambda v: _fmt_kpi(v, "kW", 1))
         layers.append(
             alt.Chart(contract_df)
             .mark_line(color="#D62728", strokeDash=[6, 4], strokeWidth=2.2)
             .encode(x="timestamp:T", y=alt.Y("contract_kW:Q", title="Vermogen [kW]"))
+        )
+        layers.append(
+            alt.Chart(contract_df)
+            .mark_point(size=180, opacity=0.001, filled=True)
+            .encode(
+                x="timestamp:T",
+                y=alt.Y("contract_kW:Q", title="Vermogen [kW]"),
+                tooltip=["timestamp:T", alt.Tooltip("contract:N", title="Contractvermogen")],
+            )
         )
     st.markdown("**Zwaarste netweek**")
     st.altair_chart(alt.layer(*layers).interactive(), width='stretch')
@@ -1611,13 +1666,19 @@ def render_peak_gas_week_interactive(df: pd.DataFrame) -> None:
 
 
 def render_load_match_balance_charts(df: pd.DataFrame) -> None:
+    df_balance = df.copy()
+    zero = pd.Series(0.0, index=df_balance.index)
+    df_balance["P_local_generation_used_kW"] = (
+        df_balance.get("P_pv_used_kW", df_balance.get("P_pv_kW", zero)).fillna(0.0)
+        + df_balance.get("P_wkk_el_kW", zero).fillna(0.0)
+    )
     balance_mapping = [
         ("Totaal verbruik", "P_load_total_kW"),
-        ("Lokale opwek", "P_generation_total_kW"),
+        ("Lokale opwek benut", "P_local_generation_used_kW"),
         ("Netimport", "P_grid_import_kW"),
         ("Teruglevering", "P_grid_export_kW"),
     ]
-    render_grouped_monthly_energy_chart("Maandelijkse energiebalans", monthly_energy_by_category(df, balance_mapping))
+    render_grouped_monthly_energy_chart("Maandelijkse energiebalans", monthly_energy_by_category(df_balance, balance_mapping))
 
     flow_data = daily_energy_by_category(
         df,
@@ -1657,6 +1718,19 @@ def render_load_match_balance_charts(df: pd.DataFrame) -> None:
         layers.append(
             alt.Chart(load_line)
             .mark_line(strokeWidth=2.4, color="#3D3D3D")
+            .encode(
+                x=alt.X("datum:T", title="Datum"),
+                y=alt.Y("energie_kWh:Q", title="Energie [kWh/dag]"),
+                tooltip=[
+                    "datum:T",
+                    "categorie:N",
+                    alt.Tooltip("energie:N", title="Totaal verbruik [kWh/dag]"),
+                ],
+            )
+        )
+        layers.append(
+            alt.Chart(load_line)
+            .mark_point(size=180, opacity=0.001, filled=True)
             .encode(
                 x=alt.X("datum:T", title="Datum"),
                 y=alt.Y("energie_kWh:Q", title="Energie [kWh/dag]"),
@@ -1838,6 +1912,18 @@ def plot_peak_grid_import_week_stacked(
         )
 
         layers.append(contract_line)
+        layers.append(
+            alt.Chart(contract_df)
+            .mark_point(size=180, opacity=0.001, filled=True)
+            .encode(
+                x=alt.X("timestamp:T", title="Tijd"),
+                y=alt.Y("contract_kW:Q", title="Vermogen [kW]"),
+                tooltip=[
+                    "timestamp:T",
+                    alt.Tooltip("contract:N", title="Contractvermogen"),
+                ],
+            )
+        )
 
     chart = alt.layer(*layers).interactive()
     st.altair_chart(chart, width='stretch')
@@ -1846,7 +1932,7 @@ def plot_peak_grid_import_week_stacked(
     if "battery_soc_pct" in week_df.columns:
         st.markdown("**Vullingsgraad batterij [%]**")
         week_df["battery_soc_label"] = week_df["battery_soc_pct"].map(lambda v: _fmt_kpi(v, "%", 2))
-        soc_chart = (
+        soc_line = (
             alt.Chart(week_df)
             .mark_line(strokeWidth=2)
             .encode(
@@ -1854,8 +1940,17 @@ def plot_peak_grid_import_week_stacked(
                 y=alt.Y("battery_soc_pct:Q", title="Vullingsgraad batterij [%]"),
                 tooltip=["timestamp:T", alt.Tooltip("battery_soc_label:N", title="Vullingsgraad")],
             )
-            .interactive()
         )
+        soc_hover = (
+            alt.Chart(week_df)
+            .mark_point(size=180, opacity=0.001, filled=True)
+            .encode(
+                x=alt.X("timestamp:T", title="Tijd"),
+                y=alt.Y("battery_soc_pct:Q", title="Vullingsgraad batterij [%]"),
+                tooltip=["timestamp:T", alt.Tooltip("battery_soc_label:N", title="Vullingsgraad")],
+            )
+        )
+        soc_chart = alt.layer(soc_line, soc_hover).interactive()
         st.altair_chart(soc_chart, width='stretch')
         render_plot_explanation("battery_soc")
 
@@ -1993,7 +2088,7 @@ def render_grid_duration_curve(df: pd.DataFrame, grid_cap_kW: float | None) -> N
     duration_long = duration_long.copy()
     duration_long["duur"] = duration_long["duration_h"].map(lambda v: _fmt_kpi(v, "h", 0))
     duration_long["vermogen"] = duration_long["power_kW"].map(lambda v: _fmt_kpi(v, "kW", 1))
-    chart = (
+    line = (
         alt.Chart(duration_long)
         .mark_line(strokeWidth=2)
         .encode(
@@ -2006,8 +2101,22 @@ def render_grid_duration_curve(df: pd.DataFrame, grid_cap_kW: float | None) -> N
                 "series:N"
             ],
         )
-        .interactive()
     )
+    hover = (
+        alt.Chart(duration_long)
+        .mark_point(size=180, opacity=0.001, filled=True)
+        .encode(
+            x=alt.X("duration_h:Q", title="Uren per jaar (gesorteerd)"),
+            y=alt.Y("power_kW:Q", title="Vermogen [kW]"),
+            color=alt.Color("series:N", title="Serie"),
+            tooltip=[
+                alt.Tooltip("duur:N", title="Duur"),
+                alt.Tooltip("vermogen:N", title="Vermogen"),
+                "series:N"
+            ],
+        )
+    )
+    chart = alt.layer(line, hover).interactive()
     st.altair_chart(chart, width='stretch')
     render_plot_explanation("duration", f"Contractvermogen: {'niet ingesteld' if grid_cap_kW is None else _fmt_kpi(grid_cap_kW, 'kW', 1)}.")
 
@@ -2076,7 +2185,7 @@ def render_validation_results(validation: dict | None) -> None:
         ts_col = compare_df.columns[0]
         compare_long = compare_df.melt(id_vars=ts_col, var_name="series", value_name="value")
         compare_long["waarde"] = compare_long["value"].map(lambda v: _fmt_kpi(v, "kW", 2))
-        chart = (
+        line = (
             alt.Chart(compare_long)
             .mark_line()
             .encode(
@@ -2085,8 +2194,18 @@ def render_validation_results(validation: dict | None) -> None:
                 color=alt.Color("series:N", title="Serie"),
                 tooltip=[f"{ts_col}:T", "series:N", alt.Tooltip("waarde:N", title="Vermogen")],
             )
-            .interactive()
         )
+        hover = (
+            alt.Chart(compare_long)
+            .mark_point(size=180, opacity=0.001, filled=True)
+            .encode(
+                x=alt.X(f"{ts_col}:T", title="Tijd"),
+                y=alt.Y("value:Q", title="Vermogen"),
+                color=alt.Color("series:N", title="Serie"),
+                tooltip=[f"{ts_col}:T", "series:N", alt.Tooltip("waarde:N", title="Vermogen")],
+            )
+        )
+        chart = alt.layer(line, hover).interactive()
         st.altair_chart(chart, width='stretch')
         render_plot_explanation("validation", "De blauwe/oranje reeksen laten zien of de simulatie dezelfde orde van grootte en timing heeft als de meting.")
 
@@ -2099,7 +2218,7 @@ def render_validation_results(validation: dict | None) -> None:
         hi = float(max(scatter_base["measured"].max(), scatter_base["simulated"].max()))
         ref_df = pd.DataFrame({"ref_x": [lo, hi], "ref_y": [lo, hi]})
         scatter_chart = alt.layer(
-            alt.Chart(scatter_base).mark_circle(size=45).encode(
+            alt.Chart(scatter_base).mark_circle(size=90).encode(
                 x=alt.X("measured:Q", title="Meting"),
                 y=alt.Y("simulated:Q", title="Simulatie"),
                 tooltip=[alt.Tooltip("meting:N", title="Meting"), alt.Tooltip("simulatie:N", title="Simulatie"), alt.Tooltip("residu:N", title="Residu")],
@@ -2112,7 +2231,7 @@ def render_validation_results(validation: dict | None) -> None:
         st.markdown("**Verschil tussen simulatie en meting**")
         residual_df = aligned.reset_index()
         residual_df["residu"] = residual_df["residual"].map(lambda v: _fmt_kpi(v, "kW", 2))
-        residual_chart = (
+        residual_line = (
             alt.Chart(residual_df)
             .mark_line()
             .encode(
@@ -2120,8 +2239,17 @@ def render_validation_results(validation: dict | None) -> None:
                 y=alt.Y("residual:Q", title="Verschil [simulatie - meting]"),
                 tooltip=[alt.Tooltip("residu:N", title="Residu")],
             )
-            .interactive()
         )
+        residual_hover = (
+            alt.Chart(residual_df)
+            .mark_point(size=180, opacity=0.001, filled=True)
+            .encode(
+                x=alt.X(f"{aligned.reset_index().columns[0]}:T", title="Tijd"),
+                y=alt.Y("residual:Q", title="Verschil [simulatie - meting]"),
+                tooltip=[alt.Tooltip("residu:N", title="Residu")],
+            )
+        )
+        residual_chart = alt.layer(residual_line, residual_hover).interactive()
         st.altair_chart(residual_chart, width='stretch')
         render_plot_explanation("validation", "Een residu rond nul betekent weinig afwijking; structureel positief of negatief wijst op bias in het model.")
 
